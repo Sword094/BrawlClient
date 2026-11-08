@@ -1385,6 +1385,81 @@ listen("presence-view", (e) => { pcCurrent = e.payload; if (currentPage === "pre
 listen("presence-log", (e) => logLine(e.payload));
 listen("presence-status", (e) => setPresenceUI(!!e.payload));
 
+/* ============================== updates ============================== */
+
+// Tiny markdown for release notes: headings, bullets, **bold**, `code`. Input is escaped first.
+function mdLite(src) {
+  const inline = (t) => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`(.+?)`/g, "<code>$1</code>");
+  let out = "", list = false;
+  for (const raw of String(src || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    const li = /^[-*]\s+(.*)/.exec(line);
+    if (li) { if (!list) { out += "<ul>"; list = true; } out += `<li>${inline(li[1])}</li>`; continue; }
+    if (list) { out += "</ul>"; list = false; }
+    const hd = /^#{1,6}\s+(.*)/.exec(line);
+    if (hd) out += `<h3>${inline(hd[1])}</h3>`;
+    else if (line) out += `<p>${inline(line)}</p>`;
+  }
+  return out + (list ? "</ul>" : "");
+}
+
+function showWhatsNew(title, notes, onClose) {
+  $("wn-title").textContent = title;
+  $("wn-body").innerHTML = notes && notes.trim()
+    ? mdLite(notes)
+    : `<p class="muted">No release notes were published for this version.</p>`;
+  $("whatsnew").classList.remove("hidden");
+  $("wn-close").onclick = () => { $("whatsnew").classList.add("hidden"); if (onClose) onClose(); };
+}
+
+let pendingUpdate = null, installing = false;
+
+async function checkForUpdate(manual) {
+  const st = $("upd-status");
+  if (manual) st.textContent = "Checking…";
+  try {
+    const u = await invoke("check_update");
+    if (u) {
+      pendingUpdate = u;
+      $("ub-version").textContent = "v" + u.version;
+      $("update-banner").classList.remove("hidden");
+      st.textContent = `· version ${u.version} is available`;
+    } else if (manual) st.textContent = "· you're on the newest version";
+  } catch (e) {
+    if (manual) st.textContent = "· " + errText(e);
+    else console.warn("update check:", e);
+  }
+}
+
+$("upd-check").onclick = () => checkForUpdate(true);
+$("ub-later").onclick = () => $("update-banner").classList.add("hidden");
+$("ub-notes").onclick = () => pendingUpdate && showWhatsNew(`Version ${pendingUpdate.version}`, pendingUpdate.notes);
+$("upd-notes").onclick = async () => {
+  try {
+    const w = await invoke("whats_new", { force: true });
+    if (w) showWhatsNew(`Version ${w.version}`, w.notes);
+  } catch (e) { toast(errText(e), true); }
+};
+$("ub-install").onclick = async () => {
+  if (installing) return;
+  installing = true;
+  $("ub-install").disabled = true;
+  $("ub-install").textContent = "Downloading…";
+  document.querySelector("#update-banner .ub-bar").classList.remove("hidden");
+  try { await invoke("install_update"); } // restarts the app when it finishes
+  catch (e) {
+    installing = false;
+    $("ub-install").disabled = false;
+    $("ub-install").textContent = "Install and restart";
+    toast(errText(e), true);
+  }
+};
+listen("update-progress", (e) => {
+  const p = e.payload || {};
+  if (p.total) $("ub-fill").style.width = Math.min(100, Math.round((p.got / p.total) * 100)) + "%";
+  if (p.done) { $("ub-fill").style.width = "100%"; $("ub-install").textContent = "Installing…"; }
+});
+
 /* =============================== boot =============================== */
 
 (async () => {
@@ -1394,6 +1469,13 @@ listen("presence-status", (e) => setPresenceUI(!!e.payload));
     invoke("get_icons").then((m) => { icons = m || {}; }).catch(() => {});
     setPresenceUI(await invoke("presence_running"));
     if (!lastSettings.api_key) showPage("settings");
+    invoke("app_version").then((v) => { $("upd-version").textContent = v; }).catch(() => {});
+    // Just updated? Show what changed (once).
+    invoke("whats_new", { force: false }).then((w) => {
+      if (w) showWhatsNew(`Updated to version ${w.version}`, w.notes, () => invoke("ack_whats_new").catch(() => {}));
+    }).catch(() => {});
+    setTimeout(() => checkForUpdate(false), 5000);
+    setInterval(() => checkForUpdate(false), 6 * 3600 * 1000);
   } catch (e) {
     console.error(e);
   }

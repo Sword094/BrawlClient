@@ -564,3 +564,23 @@ i.hm.off { background: transparent; }
 .gain b { font-size: 22px; font-weight: 800; }
 .gain.pos b { color: var(--good, #3dd68c); }
 .gain.neg b { color: var(--bad); }
+
+/* ---- updates ---- */
+.update-banner { position: fixed; right: 18px; bottom: 18px; z-index: 60; width: 340px; padding: 14px 16px; border-radius: var(--radius); background: var(--panel-2); border: 1px solid var(--accent); box-shadow: 0 10px 30px #0008; }
+.update-banner.hidden { display: none; }
+.ub-title { font-weight: 700; margin-bottom: 10px; }
+.ub-title b { color: var(--accent); }
+.ub-bar { height: 6px; background: var(--border); border-radius: 4px; overflow: hidden; margin-bottom: 10px; }
+.ub-bar.hidden { display: none; }
+.ub-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.ub-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.modal-back { position: fixed; inset: 0; z-index: 80; background: #000a; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal-back.hidden { display: none; }
+.modal { width: min(560px, 100%); max-height: 80vh; overflow: auto; padding: 22px 24px; border-radius: var(--radius); background: var(--panel); border: 1px solid var(--border); }
+.modal h2 { margin: 0 0 12px; }
+.md h3 { margin: 14px 0 6px; font-size: 15px; color: var(--accent); }
+.md p { margin: 6px 0; line-height: 1.5; }
+.md ul { margin: 6px 0; padding-left: 20px; }
+.md li { margin: 4px 0; line-height: 1.45; }
+.md code { background: var(--bg-2); padding: 1px 5px; border-radius: 4px; }
+.modal .row-actions { margin-top: 16px; }

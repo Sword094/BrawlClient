@@ -87,6 +87,24 @@ src-tauri/src/
   lib.rs             Tauri commands
 ```
 
+## Releases and automatic updates
+
+The app updates itself from [GitHub Releases](https://github.com/Sword094/BrawlClient/releases): it checks when it opens (and every few hours), shows an "Update available" box, and installs and restarts when you click **Install and restart**. After an update, a **What's new** screen shows the release notes once. You can also use **Settings > Updates** at any time.
+
+**One-time setup (maintainer)**
+1. Create a signing key: `npx tauri signer generate -w ~/.tauri/brawlclient.key` (pick a password).
+2. Paste the **public** key (the `.key.pub` file's contents) into `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`.
+3. In the GitHub repo: **Settings > Secrets and variables > Actions**, add `TAURI_SIGNING_PRIVATE_KEY` (the contents of the private `.key` file) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+4. Back up the private key. If it's lost, installed copies can't be updated any more.
+
+**Shipping a new version**
+1. Raise `version` in `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` and `package.json`.
+2. Rewrite `RELEASE_NOTES.md` for the new version. This text becomes the release description and the app's "What's new" screen.
+3. Commit, then `git tag v0.2.1 && git push && git push --tags` (use your real version number).
+4. GitHub Actions builds the installer, signs it, and publishes the release with `latest.json`. Installed apps pick it up from there.
+
+Until the public key is set, the app builds and runs normally; update checks just say updates aren't set up. Local builds (`npm run build`) don't need the key. Only the release workflow signs updates.
+
 ## Disclaimer
 
 This is a fan project. It is not affiliated with or endorsed by Supercell or Brawlify. Brawl Stars is a trademark of Supercell. Your API key and data stay on your computer.

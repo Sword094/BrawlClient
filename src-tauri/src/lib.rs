@@ -8,6 +8,7 @@ mod settings;
 mod stats;
 mod store;
 mod tracker;
+mod updater;
 
 use serde_json::{json, Value};
 use settings::Settings;
@@ -178,6 +179,11 @@ async fn get_presence_preview(app: AppHandle) -> Result<Value, String> {
 
 /// Deletes the saved games and elo readings for one player (not favorites or settings).
 #[tauri::command]
+fn app_version(app: AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
+#[tauri::command]
 fn clear_history(app: AppHandle, tag: String) -> Result<(), String> {
     let key = api::normalize_tag(&tag);
     let _g = store::lock();
@@ -314,6 +320,7 @@ pub fn run() {
         // Must be first: a second launch just brings the running window forward.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
         .manage(PresenceState(Mutex::new(None)))
         .manage(TrackerState(Mutex::new(None)))
@@ -366,7 +373,12 @@ pub fn run() {
             tracker_running,
             start_presence,
             stop_presence,
-            presence_running
+            presence_running,
+            updater::check_update,
+            updater::install_update,
+            updater::whats_new,
+            updater::ack_whats_new,
+            app_version
         ])
         .run(tauri::generate_context!())
         .expect("error while running Brawl Stars Hub");

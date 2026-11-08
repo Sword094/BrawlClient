@@ -293,8 +293,36 @@
           </div>
           <p class="hint">Your API key only works from the IP addresses you allowed when creating it. It is stored in plain text in this app's data folder, so don't share that folder.</p>
         </div>
+
+        <div class="card form" id="update-card">
+          <h2>Updates</h2>
+          <p>Version <b id="upd-version">…</b> <span id="upd-status" class="muted"></span></p>
+          <div class="row-actions">
+            <button class="btn ghost" id="upd-check">Check for updates</button>
+            <button class="btn ghost" id="upd-notes">What's new in this version</button>
+          </div>
+          <p class="hint">The app also checks on its own when it opens. Updates come from the project's GitHub releases and are only installed if they carry the project's signature.</p>
+        </div>
       </section>
     </main>
+  </div>
+
+  <div id="update-banner" class="update-banner hidden">
+    <div class="ub-title">Update available <b id="ub-version"></b></div>
+    <div class="ub-bar hidden"><i id="ub-fill"></i></div>
+    <div class="ub-actions">
+      <button class="btn primary" id="ub-install">Install and restart</button>
+      <button class="btn ghost" id="ub-notes">See what's new</button>
+      <button class="btn ghost" id="ub-later">Later</button>
+    </div>
+  </div>
+
+  <div id="whatsnew" class="modal-back hidden">
+    <div class="modal">
+      <h2 id="wn-title">What's new</h2>
+      <div id="wn-body" class="md"></div>
+      <div class="row-actions"><button class="btn primary" id="wn-close">Got it</button></div>
+    </div>
   </div>
 
   <div id="toast" class="toast hidden"></div>
