@@ -65,6 +65,10 @@ pub struct Match {
     pub elo_before: Option<i64>,
     pub elo_after: Option<i64>,
     pub elo_change: Option<i64>,
+    /// Trophy change reported by the API (non-ranked games only).
+    pub trophy_change: Option<i64>,
+    /// Finishing place in placement-based modes (showdown).
+    pub placement: Option<i64>,
 }
 
 /// "20261107T222129.000Z" -> unix seconds (UTC).
@@ -240,6 +244,8 @@ fn build_match(group: &[(i64, &Value)], my_tag: &str) -> Match {
         mode,
         map: st(ev, "map"),
         event_id: num(ev, "id"),
+        trophy_change: b.get("trophyChange").and_then(Value::as_i64),
+        placement: b.get("rank").and_then(Value::as_i64),
         kind,
         ranked,
         wins,
@@ -309,14 +315,24 @@ pub fn attach_elo(matches: &mut [Match], snaps: &[Snap]) {
         .filter(|&k| matches[k].ranked && matches[k].complete)
         .collect();
 
-    // (elo, season) of the last settled reading for each match.
+    // (elo, season) after each match. Elo only changes when a series ends, so the value holds
+    // until the NEXT series ends; any reading in [end + settle, next.end) shows this match's result.
+    // Stored readings are compressed (an unchanged stretch keeps only its first and last reading),
+    // so a window can hold none even though the value was known: if the reading just before the
+    // window and the one just after it agree, the value held across it.
+    let same = |a: &Snap, b: &Snap| a.elo == b.elo && a.season == b.season;
     let settled: Vec<Option<(i64, Option<i64>)>> = order
         .iter()
         .enumerate()
         .map(|(n, &k)| {
             let lo = matches[k].end + SETTLE_SECS;
-            let hi = order.get(n + 1).map(|&k2| matches[k2].start).unwrap_or(i64::MAX);
-            snaps.iter().rev().find(|s| s.t >= lo && s.t < hi).map(|s| (s.elo, s.season))
+            let hi = order.get(n + 1).map(|&k2| matches[k2].end).unwrap_or(i64::MAX);
+            if let Some(s) = snaps.iter().rev().find(|s| s.t >= lo && s.t < hi) {
+                return Some((s.elo, s.season));
+            }
+            let before = snaps.iter().rev().find(|s| s.t < lo)?;
+            let after = snaps.iter().find(|s| s.t >= hi)?;
+            same(before, after).then_some((before.elo, before.season))
         })
         .collect();
 
@@ -456,6 +472,32 @@ mod tests {
     }
 
     #[test]
+    fn elo_survives_compressed_readings_and_back_to_back_games() {
+        // Two ranked series back to back (the star player marks each series' final round).
+        let items = vec![
+            item("20261107T223000.000Z", 2, "defeat", 100, true, teams("#ME")),
+            item("20261107T222800.000Z", 2, "defeat", 100, false, teams("#ME")),
+            item("20261107T222000.000Z", 1, "victory", 100, true, teams("#ME")),
+            item("20261107T221800.000Z", 1, "victory", 100, false, teams("#ME")),
+        ];
+        // The unchanged stretches were compressed to first + last reading: the 5025 run has its
+        // first reading only 10 s after the win (too early to trust) and its last one after the
+        // second series ended, so nothing sits inside the first match's window.
+        let snaps = vec![
+            Snap { t: t("20261107T221600.000Z"), elo: 5000, ..Default::default() },
+            Snap { t: t("20261107T222010.000Z"), elo: 5025, ..Default::default() },
+            Snap { t: t("20261107T223010.000Z"), elo: 5025, ..Default::default() },
+            Snap { t: t("20261107T223200.000Z"), elo: 5000, ..Default::default() },
+        ];
+        let mut m = group_matches(&items, "#ME");
+        attach_elo(&mut m, &snaps);
+        assert_eq!(m[1].elo_after, Some(5025));
+        assert_eq!(m[1].elo_change, Some(25));
+        assert_eq!(m[0].elo_before, Some(5025));
+        assert_eq!(m[0].elo_change, Some(-25));
+    }
+
+    #[test]
     fn does_not_treat_a_season_reset_as_a_match_result() {
         let items = vec![
             item("20261107T222129.000Z", 1, "victory", 130, true, teams("#ME")),
@@ -485,7 +527,7 @@ mod tests {
         let Ok(path) = std::env::var("BATTLELOG_FIXTURE") else { return };
         let v: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         let items = v["items"].as_array().unwrap();
-        let m = group_matches(items, "#8QGVRY9UP");
+        let m = group_matches(items, "#ME");
         for x in &m {
             println!("{} {} {}-{} rounds={} complete={}", x.mode, x.result, x.wins, x.losses, x.rounds.len(), x.complete);
         }

@@ -22,6 +22,17 @@ pub struct Summary {
     pub losses: u32,
     pub ranked: u32,
     pub elo_net: Option<i64>,
+    /// +n = n wins in a row, -n = n losses in a row (newest games).
+    pub current_streak: i32,
+    pub best_win_streak: u32,
+    pub ranked_wins: u32,
+    pub ranked_losses: u32,
+    /// Games where you were the star player.
+    pub star_count: u32,
+    /// Unix time of the earliest saved game.
+    pub since: Option<i64>,
+    /// Average trophy change per non-ranked game that reported one.
+    pub avg_trophies: Option<f64>,
     pub by_mode: Vec<Row>,
     pub by_map: Vec<Row>,
     pub by_brawler: Vec<Row>,
@@ -52,7 +63,27 @@ fn sorted(map: HashMap<String, Row>) -> Vec<Row> {
 pub fn summarize(matches: &[Match]) -> Summary {
     let mut s = Summary::default();
     let (mut modes, mut maps, mut brawlers) = (HashMap::new(), HashMap::new(), HashMap::new());
-    for m in matches.iter().filter(|m| m.complete || !m.ranked) {
+    let (mut tro_sum, mut tro_n) = (0i64, 0i64);
+    let mut run = 0u32;
+    // Oldest first, for the best-streak scan; the vector is newest first.
+    let done: Vec<&Match> = matches.iter().filter(|m| m.complete || !m.ranked).collect();
+    for m in done.iter().rev() {
+        if m.result == "victory" {
+            run += 1;
+            s.best_win_streak = s.best_win_streak.max(run);
+        } else {
+            run = 0;
+        }
+    }
+    if let Some(first) = done.first() {
+        let dir = if first.result == "victory" { 1 } else if first.result == "defeat" { -1 } else { 0 };
+        if dir != 0 {
+            let n = done.iter().take_while(|m| m.result == first.result).count() as i32;
+            s.current_streak = dir * n;
+        }
+    }
+    s.since = done.iter().map(|m| m.start).filter(|t| *t > 0).min();
+    for m in done.iter().copied() {
         let win = m.result == "victory";
         let loss = m.result == "defeat";
         s.total += 1;
@@ -60,6 +91,15 @@ pub fn summarize(matches: &[Match]) -> Summary {
         s.losses += loss as u32;
         if m.ranked {
             s.ranked += 1;
+            s.ranked_wins += win as u32;
+            s.ranked_losses += loss as u32;
+        }
+        if m.teams.iter().flatten().any(|p| p.me && p.star) {
+            s.star_count += 1;
+        }
+        if let Some(c) = m.trophy_change {
+            tro_sum += c;
+            tro_n += 1;
         }
         if let Some(c) = m.elo_change {
             s.elo_net = Some(s.elo_net.unwrap_or(0) + c);
@@ -70,6 +110,7 @@ pub fn summarize(matches: &[Match]) -> Summary {
             bump(&mut brawlers, me.brawler.clone(), me.id, win, loss);
         }
     }
+    s.avg_trophies = (tro_n > 0).then(|| tro_sum as f64 / tro_n as f64);
     s.by_mode = sorted(modes);
     s.by_map = sorted(maps);
     s.by_brawler = sorted(brawlers);
@@ -90,6 +131,15 @@ fn thin(mut pts: Vec<[i64; 2]>) -> Vec<[i64; 2]> {
     }
     pts.clear();
     out
+}
+
+/// One `[end time, outcome]` per finished game (1 win, -1 loss, 0 other), for the heat map.
+pub fn day_results(matches: &[Match]) -> Vec<[i64; 2]> {
+    matches
+        .iter()
+        .filter(|m| m.complete || !m.ranked)
+        .map(|m| [m.end, match m.result.as_str() { "victory" => 1, "defeat" => -1, _ => 0 }])
+        .collect()
 }
 
 pub fn series(h: &History) -> Series {
@@ -125,6 +175,33 @@ mod tests {
             teams: vec![vec![PlayerRef { brawler: brawler.into(), id: 7, me: true, ..Default::default() }]],
             ..Default::default()
         }
+    }
+
+    fn game(result: &str, star: bool, tro: Option<i64>, end: i64) -> Match {
+        Match {
+            result: result.into(), complete: true, end, start: end - 100, trophy_change: tro, my_team: Some(0),
+            teams: vec![vec![PlayerRef { me: true, star, ..Default::default() }]],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn streaks_stars_and_averages() {
+        // newest first: L L W W W L W
+        let ms = vec![
+            game("defeat", false, Some(-6), 700), game("defeat", true, Some(-8), 600),
+            game("victory", false, Some(8), 500), game("victory", true, Some(10), 400),
+            game("victory", false, Some(8), 300), game("defeat", false, None, 200), game("victory", false, None, 100),
+        ];
+        let s = summarize(&ms);
+        assert_eq!(s.current_streak, -2);
+        assert_eq!(s.best_win_streak, 3);
+        assert_eq!(s.star_count, 2);
+        assert_eq!(s.since, Some(100)); // the oldest game's start (0) counts as unknown
+        assert_eq!(s.avg_trophies, Some(12.0 / 5.0));
+        assert_eq!(summarize(&[game("victory", false, None, 5)]).current_streak, 1);
+        assert_eq!(summarize(&[]).current_streak, 0);
+        assert_eq!(day_results(&ms)[0], [700, -1]);
     }
 
     #[test]

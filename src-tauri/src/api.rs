@@ -84,13 +84,13 @@ mod tests {
 
     #[test]
     fn normalizes_tags() {
-        assert_eq!(normalize_tag(" #8qgvry9up "), "8QGVRY9UP");
+        assert_eq!(normalize_tag("  #2pp0ylq "), "2PP0YLQ");
         assert_eq!(normalize_tag("#2OO"), "200");
     }
 
     #[test]
     fn validates_tags() {
-        assert!(validate_tag("8QGVRY9UP").is_ok());
+        assert!(validate_tag("2PP0YLQ").is_ok());
         assert!(validate_tag("").is_err());
         assert!(validate_tag("ABC").is_err()); // A, B are not tag characters
     }

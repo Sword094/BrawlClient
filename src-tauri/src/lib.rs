@@ -112,6 +112,7 @@ fn get_stats(app: AppHandle, tag: String) -> Value {
         "tracked": !h.items.is_empty() || !h.snaps.is_empty(),
         "summary": stats::summarize(&ms),
         "series": stats::series(&h),
+        "days": stats::day_results(&ms),
         "sessions": sessions,
     })
 }
@@ -159,6 +160,28 @@ async fn recommend(
     let banned: std::collections::HashSet<i64> = banned.into_iter().collect();
     let recs = meta::recommend(&m, &map, ranked_only, &meta::tiers_for(&source), &banned, owned.as_ref());
     Ok(json!({ "recs": recs }))
+}
+
+/// What the Presence page shows: the rotation, the placeholder values and which view is pinned.
+#[tauri::command]
+async fn get_presence_preview(app: AppHandle) -> Result<Value, String> {
+    let s = settings::load(&app);
+    if s.api_key.trim().is_empty() || s.player_tag.trim().is_empty() {
+        return Err("Set your API key and player tag in Settings first.".into());
+    }
+    let ctx = presence::context(&app, &s).await?;
+    Ok(json!({
+        "views": presence::views(&ctx, &s),
+        "placeholders": presence::placeholders(&ctx),
+    }))
+}
+
+/// Deletes the saved games and elo readings for one player (not favorites or settings).
+#[tauri::command]
+fn clear_history(app: AppHandle, tag: String) -> Result<(), String> {
+    let key = api::normalize_tag(&tag);
+    let _g = store::lock();
+    store::save(&app, &history::file_name(&key), &history::History::default())
 }
 
 #[tauri::command]
@@ -330,6 +353,8 @@ pub fn run() {
             get_matches,
             get_stats,
             get_icons,
+            clear_history,
+            get_presence_preview,
             get_meta,
             recommend,
             get_favorites,

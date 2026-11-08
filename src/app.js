@@ -19,6 +19,16 @@ const num = (n) => (typeof n === "number" ? n.toLocaleString() : "—");
 const sign = (n) => (n > 0 ? "+" : n < 0 ? "−" : "±") + Math.abs(n).toLocaleString();
 const normTag = (t) => String(t || "").trim().replace(/^#/, "").toUpperCase().replace(/O/g, "0");
 
+// Tag fields are always uppercase (tags only use 0289PYLQGRJCUV, and O is always 0).
+for (const id of ["search-input", "cmp-a", "cmp-b", "set-tag"]) {
+  const el = $(id);
+  if (!el) continue;
+  el.addEventListener("input", () => {
+    const at = el.selectionStart, v = el.value.toUpperCase();
+    if (v !== el.value) { el.value = v; try { el.setSelectionRange(at, at); } catch {} }
+  });
+}
+
 // API colors look like "0xffa8e132" (AARRGGBB). Return "#rrggbb".
 function apiColor(c) {
   const m = /^0x[0-9a-f]{2}([0-9a-f]{6})$/i.exec(c || "");
@@ -126,6 +136,7 @@ function showPage(name) {
   if (name === "recent") renderRecentPage();
   if (name === "stats") renderStatsPage();
   if (name === "recommend") initRecommend();
+  if (name === "presence") renderPresencePage();
   if (name === "activity") renderActivity();
 }
 
@@ -676,7 +687,9 @@ function lineChart(points, { color, unit }) {
   }
   const ticks = [0, 0.5, 1].map((f) => lo + (hi - lo) * f);
   const grid = ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="gl"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end" class="gt">${Math.round(v).toLocaleString()}</text>`).join("");
-  const fmt = (t) => new Date(t * 1000).toLocaleDateString([], { month: "short", day: "numeric" });
+  const fmt = (t) => statsRange === "today"
+    ? new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : new Date(t * 1000).toLocaleDateString([], { month: "short", day: "numeric" });
   const last = pts[pts.length - 1];
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="${esc(unit)} over time">
     ${grid}
@@ -712,6 +725,172 @@ function sessionRows(list) {
   }).join("")}</div>`;
 }
 
+/* ---- overview: tiles, daily heat map, trophy / elo graph ---- */
+let statsData = null, statsMetric = "trophies", statsRange = "all", heatMode = "battles", clearArmed = false;
+const DAY = 86400;
+const dayKey = (d) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+
+// Last 40 weeks as columns (Sunday on top). Each day: battles, wins, losses.
+function heatMap(days, mode) {
+  const byDay = new Map();
+  for (const [end, res] of days) {
+    const k = dayKey(new Date(end * 1000));
+    const c = byDay.get(k) || { n: 0, w: 0, l: 0 };
+    c.n++; if (res > 0) c.w++; else if (res < 0) c.l++;
+    byDay.set(k, c);
+  }
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const WEEKS = 40;
+  const start = new Date(today); start.setDate(start.getDate() - today.getDay() - (WEEKS - 1) * 7);
+  const maxN = Math.max(1, ...[...byDay.values()].map((c) => c.n));
+  let cols = "", months = "", lastMonth = -1;
+  for (let w = 0; w < WEEKS; w++) {
+    let cells = "";
+    for (let d = 0; d < 7; d++) {
+      const day = new Date(start); day.setDate(start.getDate() + w * 7 + d);
+      if (day > today) { cells += `<i class="hm off"></i>`; continue; }
+      const c = byDay.get(dayKey(day));
+      const label = day.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+      let style = "", tip = `${label}: no battles`;
+      if (c) {
+        const rate = Math.round((c.w / Math.max(1, c.w + c.l)) * 100);
+        const a = (0.25 + 0.75 * (c.n / maxN)).toFixed(2);
+        if (mode === "battles") style = `background:rgba(255,206,0,${a})`;
+        else style = c.w > c.l ? `background:rgba(61,214,140,${a})` : c.w < c.l ? `background:rgba(255,92,92,${a})` : `background:rgba(150,150,170,${a})`;
+        tip = `${label}: ${c.n} battle${c.n === 1 ? "" : "s"} · ${c.w}W–${c.l}L · ${rate}% win rate`;
+      }
+      cells += `<i class="hm" style="${style}" data-tip="${esc(tip)}"></i>`;
+    }
+    const m = new Date(start.getTime() + w * 7 * DAY * 1000).getMonth();
+    months += `<span>${m !== lastMonth ? new Date(start.getTime() + w * 7 * DAY * 1000).toLocaleDateString([], { month: "short" }) : ""}</span>`;
+    lastMonth = m;
+    cols += `<div class="hm-col">${cells}</div>`;
+  }
+  const legend = mode === "battles"
+    ? `<span class="hm-key"><i class="hm" style="background:rgba(255,206,0,.25)"></i> few <i class="hm" style="background:rgba(255,206,0,1)"></i> many battles</span>`
+    : `<span class="hm-key"><i class="hm" style="background:rgba(61,214,140,.8)"></i> more wins <i class="hm" style="background:rgba(150,150,170,.8)"></i> even <i class="hm" style="background:rgba(255,92,92,.8)"></i> more losses</span>`;
+  return `<div class="hm-wrap"><div class="hm-months">${months}</div><div class="hm-grid">${cols}</div></div><div class="chart-foot muted small">${legend}</div>`;
+}
+
+function statsTiles(s) {
+  const dec = s.wins + s.losses;
+  const rate = dec ? Math.round((s.wins / dec) * 100) + "%" : "—";
+  const cs = s.current_streak;
+  const streak = cs === 0 ? "—" : cs > 0 ? `${cs}W` : `${-cs}L`;
+  const star = s.total ? Math.round((s.star_count / s.total) * 100) + "%" : "—";
+  const since = s.since ? "since " + new Date(s.since * 1000).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "";
+  const avg = s.avg_trophies == null ? "—" : (s.avg_trophies > 0 ? "+" : "") + s.avg_trophies.toFixed(1);
+  const rk = s.ranked_wins + s.ranked_losses;
+  return `<div class="grid">
+    ${stat("Battles", num(s.total), since)}
+    ${stat("Win rate", rate, `${num(s.wins)}W – ${num(s.losses)}L`, "gold")}
+    ${stat("Current streak", streak, cs > 0 ? "winning" : cs < 0 ? "losing" : "no games yet", cs > 0 ? "green" : "")}
+    ${stat("Best win streak", num(s.best_win_streak), "in saved games")}
+    ${stat("Star player", star, `${num(s.star_count)} time${s.star_count === 1 ? "" : "s"}`)}
+    ${stat("Avg trophies / game", avg, "non-ranked games", "gold")}
+    ${stat("Ranked record", rk ? `${s.ranked_wins}–${s.ranked_losses}` : "—", rk ? Math.round((s.ranked_wins / rk) * 100) + "% win rate" : "no ranked games", "purple")}
+    ${stat("Net elo", s.elo_net == null ? "—" : sign(s.elo_net), "from elo readings", "purple")}
+  </div>`;
+}
+
+function rangeCutoff() {
+  if (statsRange === "all") return 0;
+  if (statsRange === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); return Math.floor(d.getTime() / 1000); }
+  return Math.floor(Date.now() / 1000) - Number(statsRange) * DAY;
+}
+
+// Readings inside the range. The reading just before the start is kept (moved to the start) so
+// the line begins at the right height; "today" is also extended to now.
+function seriesForRange(pts) {
+  const cutoff = rangeCutoff();
+  if (!cutoff || !pts.length) return pts;
+  const valid = pts.filter((p) => p[1] > 0);
+  const before = [...valid].reverse().find((p) => p[0] < cutoff);
+  const inside = pts.filter((p) => p[0] >= cutoff);
+  const out = before ? [[cutoff, before[1]], ...inside] : inside;
+  if (statsRange === "today" && out.length) { const last = [...out].reverse().find((p) => p[1] > 0); if (last) out.push([Math.floor(Date.now() / 1000), last[1]]); }
+  return out;
+}
+
+// "+25 elo gained today", from the first to the last reading in the range.
+function gainLine(pts, unit) {
+  const v = pts.filter((p) => p[1] > 0);
+  if (v.length < 2) return "";
+  const d = v[v.length - 1][1] - v[0][1];
+  const word = { today: "today", "7": "in the last 7 days", "30": "in the last 30 days", all: "overall" }[statsRange];
+  return `<div class="gain ${d > 0 ? "pos" : d < 0 ? "neg" : ""}"><b>${d > 0 ? "+" : ""}${num(d)}</b> ${esc(unit)} ${esc(word)}</div>`;
+}
+
+function chartSection() {
+  const r = statsData;
+  const elo = statsMetric === "elo";
+  const ranged = seriesForRange(elo ? r.series.elo : r.series.trophies);
+  const seg = (cls, key, cur, items) => `<div class="seg" data-seg="${key}">${items.map(([v, l]) =>
+    `<button class="${cur === v ? "on" : ""}" data-v="${v}">${l}</button>`).join("")}</div>`;
+  return `<div class="section-head"><h2>${elo ? "Ranked elo" : "Trophies"}</h2><div class="seg-row">
+      ${seg("", "metric", statsMetric, [["trophies", "Trophies"], ["elo", "Ranked elo"]])}
+      ${seg("", "range", statsRange, [["today", "Today"], ["7", "7 days"], ["30", "30 days"], ["all", "All time"]])}</div></div>
+    <div class="card">${gainLine(ranged, elo ? "elo" : "trophies")}${lineChart(ranged,
+      elo ? { color: "#b79cff", unit: "elo" } : { color: "#ffce00", unit: "trophies" })}</div>`;
+}
+
+function heatSection() {
+  const seg = [["battles", "Battles"], ["winrate", "Win rate"]];
+  return `<div class="section-head"><h2>Activity</h2><div class="seg-row"><div class="seg" data-seg="heat">${seg.map(([v, l]) =>
+    `<button class="${heatMode === v ? "on" : ""}" data-v="${v}">${l}</button>`).join("")}</div></div></div>
+    <div class="card">${heatMap(statsData.days || [], heatMode)}</div>`;
+}
+
+function paintStats() {
+  const r = statsData, s = r.summary;
+  $("stats-body").innerHTML = `
+    ${statsTiles(s)}
+    ${heatSection()}
+    ${chartSection()}
+    <div class="section-head"><h2>Win rates</h2></div>
+    <div class="two-col">${rateTable("By brawler", s.by_brawler, true)}${rateTable("By mode", s.by_mode, false)}${rateTable("By map", s.by_map, false)}</div>
+    <div class="section-head"><h2>Recent sessions</h2></div>
+    ${sessionRows(r.sessions)}
+    <div class="danger-row"><button class="btn ghost danger" id="stats-clear">${clearArmed ? "Click again to delete saved history" : "Clear history"}</button>
+      <span class="muted small">Deletes this player's saved games and graphs from this computer only.</span></div>`;
+}
+
+$("stats-body").addEventListener("click", async (ev) => {
+  const seg = ev.target.closest(".seg button");
+  if (seg && statsData) {
+    const key = seg.parentElement.dataset.seg, v = seg.dataset.v;
+    if (key === "metric") statsMetric = v; else if (key === "range") statsRange = v; else if (key === "heat") heatMode = v;
+    paintStats();
+    return;
+  }
+  if (ev.target.id === "stats-clear") {
+    if (!clearArmed) {
+      clearArmed = true; paintStats();
+      setTimeout(() => { if (clearArmed) { clearArmed = false; if (statsData) paintStats(); } }, 5000);
+      return;
+    }
+    clearArmed = false;
+    try { await invoke("clear_history", { tag: statsTag }); } catch (e) { toast(errText(e)); }
+    renderStatsPage();
+  }
+});
+
+// One shared tooltip for heat-map cells.
+(() => {
+  const tip = document.createElement("div");
+  tip.className = "hm-tip"; tip.hidden = true; document.body.appendChild(tip);
+  const body = $("stats-body");
+  body.addEventListener("mouseover", (ev) => {
+    const c = ev.target.closest("[data-tip]");
+    if (!c) { tip.hidden = true; return; }
+    tip.textContent = c.dataset.tip; tip.hidden = false;
+    const r = c.getBoundingClientRect();
+    tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 8, Math.max(8, r.left + r.width / 2 - tip.offsetWidth / 2)) + "px";
+    tip.style.top = r.top - tip.offsetHeight - 8 + "px";
+  });
+  body.addEventListener("mouseleave", () => { tip.hidden = true; });
+})();
+
 async function renderStatsPage() {
   const me = normTag(lastSettings.player_tag);
   if (!statsTag) statsTag = me;
@@ -731,25 +910,13 @@ async function renderStatsPage() {
   if (token !== statsToken) return;
 
   if (!r.tracked) {
+    statsData = null;
     $("stats-body").innerHTML = `<div class="notice">Nothing saved for this player yet. Make them <b>you</b> in Settings or add them to <b>Favorites</b>, keep the app running, and graphs fill in as they play.</div>`;
     return;
   }
-  const s = r.summary;
-  const pct = s.wins + s.losses ? Math.round((s.wins / (s.wins + s.losses)) * 100) + "%" : "—";
-  $("stats-body").innerHTML = `
-    <div class="grid">
-      ${stat("Games saved", num(s.total), `${num(s.ranked)} ranked`)}
-      ${stat("Win rate", pct, `${num(s.wins)}W – ${num(s.losses)}L`, "gold")}
-      ${stat("Net elo (known games)", s.elo_net == null ? "—" : sign(s.elo_net), "from elo readings", "purple")}
-    </div>
-    <div class="section-head"><h2>Ranked elo</h2></div>
-    <div class="card">${lineChart(r.series.elo, { color: "#b79cff", unit: "elo" })}</div>
-    <div class="section-head"><h2>Trophies</h2></div>
-    <div class="card">${lineChart(r.series.trophies, { color: "#ffce00", unit: "trophies" })}</div>
-    <div class="section-head"><h2>Win rates</h2></div>
-    <div class="two-col">${rateTable("By brawler", s.by_brawler, true)}${rateTable("By mode", s.by_mode, false)}${rateTable("By map", s.by_map, false)}</div>
-    <div class="section-head"><h2>Recent sessions</h2></div>
-    ${sessionRows(r.sessions)}`;
+  statsData = r;
+  clearArmed = false;
+  paintStats();
 }
 
 $("stats-select").onchange = (ev) => { statsTag = ev.target.value; renderStatsPage(); };
@@ -1026,9 +1193,6 @@ async function loadSettings() {
   $("set-login").checked = !!lastSettings.launch_at_login;
   $("set-notify").checked = lastSettings.notifications !== false;
   $("set-autopresence").checked = !!lastSettings.auto_start_presence;
-  $("set-p-trophies").checked = lastSettings.presence_trophies !== false;
-  $("set-p-ranked").checked = lastSettings.presence_ranked !== false;
-  $("set-p-session").checked = lastSettings.presence_session !== false;
 }
 
 async function saveSettings() {
@@ -1042,9 +1206,6 @@ async function saveSettings() {
     launch_at_login: $("set-login").checked,
     notifications: $("set-notify").checked,
     auto_start_presence: $("set-autopresence").checked,
-    presence_trophies: $("set-p-trophies").checked,
-    presence_ranked: $("set-p-ranked").checked,
-    presence_session: $("set-p-session").checked,
   };
   await invoke("save_settings", { settings: lastSettings });
 }
@@ -1053,13 +1214,6 @@ $("set-save").onclick = async () => {
   try { await saveSettings(); setMsg("Saved.", "ok"); }
   catch (e) { setMsg(errText(e), "err"); }
 };
-
-// Presence page toggles take effect live, so save them as soon as they change.
-["set-p-trophies", "set-p-ranked", "set-p-session"].forEach((id) => {
-  $(id).onchange = async () => {
-    try { await saveSettings(); setMsg("Saved.", "ok"); } catch (e) { setMsg(errText(e), "err"); }
-  };
-});
 
 $("set-test").onclick = async () => {
   setMsg("Testing...");
@@ -1106,6 +1260,128 @@ $("presence-toggle").onclick = async () => {
   }
 };
 
+/* --- presence page: content toggles, custom text, extras, rotation preview --- */
+
+const PC_TOGGLES = {
+  "pc-latest": "presence_latest", "pc-victories": "presence_victories", "pc-trophies": "presence_trophies",
+  "pc-record": "presence_record", "pc-ranked": "presence_ranked", "pc-club": "presence_club",
+  "pc-streak": "presence_streak", "pc-session": "presence_session",
+  "pc-custom": "presence_custom", "pc-images": "presence_images", "pc-button": "presence_button",
+};
+const VIEW_TITLES = {
+  latest: "Latest match", session: "Current session", trophies: "Trophies", ranked: "Ranked",
+  streak: "Win streak", victories: "Victories", record: "Recent record", club: "Club", custom: "Custom text",
+};
+let pcData = null;      // { views, placeholders }
+let pcCurrent = null;   // view id Discord is showing right now
+let pcLastLine = "pc-line1";
+let pcTimer = null;
+
+function pcFill(text) {
+  let out = text || "";
+  for (const p of (pcData && pcData.placeholders) || []) out = out.split(`{${p.key}}`).join(p.value);
+  return out;
+}
+
+function pcImg(url, cls) {
+  return url ? `<img class="${cls}" src="${esc(url)}" alt="" onerror="this.style.display='none'" />` : "";
+}
+
+function pcRenderPreview() {
+  const views = (pcData && pcData.views) || [];
+  const custom = {
+    details: pcFill($("pc-line1").value), state: pcFill($("pc-line2").value),
+    large_image: (views[0] || {}).large_image, small_image: (views[0] || {}).small_image,
+  };
+  // The preview shows the custom text (this card is about it); the rotation list shows the rest.
+  $("pc-preview").innerHTML = `
+    <div class="d-label">PLAYING A GAME</div>
+    <div class="d-row">
+      <div class="d-art">${pcImg(custom.large_image, "d-big")}${pcImg(custom.small_image, "d-small")}</div>
+      <div class="d-text"><b>Brawl Stars</b><div>${esc(custom.details)}</div><div>${esc(custom.state)}</div><div class="muted">00:00 elapsed</div></div>
+    </div>
+    ${lastSettings.presence_button ? `<div class="d-btn">View Brawl Stars stats</div>` : ""}`;
+  $("pc-pin-custom").textContent = lastSettings.presence_pin === "custom" ? "Unpin custom text" : "Pin custom text";
+}
+
+function pcRenderRotation() {
+  const views = (pcData && pcData.views) || [];
+  const pin = lastSettings.presence_pin || "";
+  $("pc-rotation").innerHTML = views.map((v, i) => `
+    <div class="rot ${v.id === pcCurrent ? "now" : ""}">
+      <span class="n">${i + 1}</span>
+      <span class="rt"><b>${esc(v.details)}</b><span class="muted">${esc(v.state)}</span></span>
+      <span class="muted small">${esc(VIEW_TITLES[v.id] || v.id)}</span>
+      <button class="btn ${pin === v.id ? "primary" : ""}" data-pin="${esc(v.id)}">${pin === v.id ? "UNPIN" : "PIN"}</button>
+    </div>`).join("") || `<div class="empty small">Nothing to show yet.</div>`;
+}
+
+function pcRenderPlaceholders() {
+  $("pc-placeholders").innerHTML = ((pcData && pcData.placeholders) || []).map((p) =>
+    `<button type="button" class="ph" data-ph="${esc(p.key)}"><code>{${esc(p.key)}}</code><span>${esc(p.label)}</span><em>${esc(p.value)}</em></button>`).join("");
+}
+
+async function pcSave(patch) {
+  lastSettings = { ...lastSettings, ...patch };
+  await invoke("save_settings", { settings: lastSettings });
+  clearTimeout(pcTimer);
+  pcTimer = setTimeout(pcReload, 350);
+}
+
+async function pcReload() {
+  const err = $("presence-error");
+  try {
+    pcData = await invoke("get_presence_preview");
+    err.classList.add("hidden");
+  } catch (e) {
+    err.textContent = errText(e);
+    err.classList.remove("hidden");
+  }
+  pcRenderPlaceholders();
+  pcRenderPreview();
+  pcRenderRotation();
+}
+
+function renderPresencePage() {
+  for (const [id, key] of Object.entries(PC_TOGGLES)) $(id).checked = key === "presence_images" || key === "presence_button" || key === "presence_custom" || key === "presence_club"
+    ? !!lastSettings[key] : lastSettings[key] !== false;
+  $("pc-line1").value = lastSettings.presence_line1 || "";
+  $("pc-line2").value = lastSettings.presence_line2 || "";
+  pcRenderPreview();
+  pcReload();
+}
+
+for (const [id, key] of Object.entries(PC_TOGGLES)) {
+  $(id).onchange = (ev) => pcSave({ [key]: ev.target.checked }).catch((e) => toast(errText(e)));
+}
+for (const id of ["pc-line1", "pc-line2"]) {
+  $(id).onfocus = () => { pcLastLine = id; };
+  $(id).oninput = () => {
+    pcRenderPreview();
+    pcSave({ presence_line1: $("pc-line1").value, presence_line2: $("pc-line2").value }).catch(() => {});
+  };
+}
+$("pc-placeholders").onclick = (ev) => {
+  const b = ev.target.closest("[data-ph]");
+  if (!b) return;
+  const input = $(pcLastLine);
+  const tok = `{${b.dataset.ph}}`;
+  const s = input.selectionStart ?? input.value.length, e = input.selectionEnd ?? s;
+  input.value = input.value.slice(0, s) + tok + input.value.slice(e);
+  input.focus();
+  input.setSelectionRange(s + tok.length, s + tok.length);
+  input.dispatchEvent(new Event("input"));
+};
+$("pc-rotation").onclick = (ev) => {
+  const b = ev.target.closest("[data-pin]");
+  if (!b) return;
+  const id = b.dataset.pin;
+  pcSave({ presence_pin: lastSettings.presence_pin === id ? "" : id }).then(() => { pcRenderRotation(); pcRenderPreview(); }).catch((e) => toast(errText(e)));
+};
+$("pc-pin-custom").onclick = () =>
+  pcSave({ presence_pin: lastSettings.presence_pin === "custom" ? "" : "custom" }).then(() => { pcRenderRotation(); pcRenderPreview(); }).catch((e) => toast(errText(e)));
+
+listen("presence-view", (e) => { pcCurrent = e.payload; if (currentPage === "presence") pcRenderRotation(); });
 listen("presence-log", (e) => logLine(e.payload));
 listen("presence-status", (e) => setPresenceUI(!!e.payload));
 

@@ -8,7 +8,7 @@ A standalone Windows app (Tauri v2 + Rust) for looking up Brawl Stars players, t
 - **Favorites:** save players; they're checked in the background about once a minute.
 - **Recent games:** every game the app has saved plus the API's latest 25. A ranked game is a best-of-3, so it shows as one game with its round score (e.g. 2-1) and one elo change. Both teams, brawler icons and the star player are shown; click a player for their brawler, power and tier, or to open their profile.
 - **Match details:** click the top row of any game to open a panel with the map image, mode, time played, result, round-by-round results and lengths, elo before/after, your brawler and the star player.
-- **Stats & graphs:** elo and trophy graphs over time, win rates by brawler, mode and map, and recent sessions.
+- **Stats & graphs:** overview tiles (battles, win rate, current and best streak, star player rate, average trophies per game, ranked record, net elo), a daily activity heat map (battles or win rate), trophy / ranked-elo graph with 7 day / 30 day / all-time ranges, win rates by brawler, mode and map, recent sessions, and a two-click "Clear history".
 - **Ranked picks:** suggests brawlers for a map from the recent games of Diamond-and-higher players.
   - **Top 5 picks** are shown as cards above a full table. They're ranked by a smoothed win rate (so a brawler seen in a handful of rounds can't top the list), nudged by your own brawler's power level. Banned brawlers are removed first.
   - **Data source:** Diamond and higher (default), Diamond only, Mythic only, Mythic and higher, Legendary only, Legendary and higher, or Masters only. It never goes below Diamond. Changing the source doesn't need a new refresh.
@@ -17,7 +17,8 @@ A standalone Windows app (Tauri v2 + Rust) for looking up Brawl Stars players, t
 - **Compare:** two players side by side, including the brawlers they both own.
 - **Tray, autostart, notifications:** closing the window can keep the app running in the system tray (right-click the tray icon and choose Quit to exit), the app can start with Windows hidden in the tray, and it can notify you when a favorite starts playing or a rank changes.
 - **Activity log:** who is playing, when each tracked player's last game was, and how each game went.
-- **Discord Rich Presence:** rotating every 30 seconds between trophies, ranked elo and (while you're playing) your current session. Each page can be switched off in Settings.
+- **Discord Presence page:** choose which pages rotate (latest match, trophies, ranked, win streak, victories, recent record, session, club), write your own two lines with placeholders like `{brawler}`, `{trophies}`, `{elo}`, `{winrate}` (click one to insert it), pin a single page, show brawler/map pictures and a "View Brawl Stars stats" button, and see a live preview of what Discord will show.
+- **Tags are always uppercase** in the search, compare and settings boxes.
 
 ## What the Brawl Stars API can and can't do
 

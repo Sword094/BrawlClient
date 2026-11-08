@@ -479,7 +479,7 @@ mod tests {
     }
 
     fn player(elo: i64) -> Value {
-        json!({"name":"Mr.Krabs","trophies":51594,"rankedRankName":"MYTHIC III","rankedRank":15,"rankedElo":elo,"rankedSeasonId":50})
+        json!({"name":"TestPlayer","trophies":51594,"rankedRankName":"MYTHIC III","rankedRank":15,"rankedElo":elo,"rankedSeasonId":50})
     }
 
     fn teams() -> Value {

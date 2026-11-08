@@ -28,7 +28,7 @@ pub struct History {
     pub snaps: Vec<Snap>,
 }
 
-fn file_name(tag: &str) -> String {
+pub fn file_name(tag: &str) -> String {
     let clean: String = normalize_tag(tag).chars().filter(|c| c.is_ascii_alphanumeric()).collect();
     format!("history_{clean}.json")
 }

@@ -22,6 +22,22 @@ pub struct Settings {
     pub presence_trophies: bool,
     pub presence_ranked: bool,
     pub presence_session: bool,
+    pub presence_latest: bool,
+    pub presence_streak: bool,
+    pub presence_victories: bool,
+    pub presence_record: bool,
+    pub presence_club: bool,
+    /// Custom text lines; {placeholders} are replaced on every refresh.
+    pub presence_line1: String,
+    pub presence_line2: String,
+    /// Add the custom text to the rotation.
+    pub presence_custom: bool,
+    /// Show only this view ("latest", "trophies", "custom", ...). Empty = rotate.
+    pub presence_pin: String,
+    /// Brawler picture (large) and map picture (small badge) on Discord.
+    pub presence_images: bool,
+    /// "View stats" profile button (other people see it, you don't).
+    pub presence_button: bool,
 }
 
 impl Default for Settings {
@@ -38,6 +54,17 @@ impl Default for Settings {
             presence_trophies: true,
             presence_ranked: true,
             presence_session: true,
+            presence_latest: true,
+            presence_streak: true,
+            presence_victories: true,
+            presence_record: true,
+            presence_club: false,
+            presence_line1: "{brawler} main · {trophies} trophies".into(),
+            presence_line2: "{rank} · {winrate} win rate".into(),
+            presence_custom: false,
+            presence_pin: String::new(),
+            presence_images: true,
+            presence_button: true,
         }
     }
 }

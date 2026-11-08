@@ -27,6 +27,7 @@
       <button class="nav-item" data-page="stats"><span class="ico">📈</span>Stats &amp; Graphs</button>
       <button class="nav-item" data-page="recommend"><span class="ico">🎯</span>Ranked Picks</button>
       <button class="nav-item" data-page="compare"><span class="ico">⇄</span>Compare</button>
+      <button class="nav-item" data-page="presence"><span class="ico">🎮</span>Discord Presence</button>
       <button class="nav-item" data-page="activity"><span class="ico">≣</span>Activity Log</button>
       <div class="spacer"></div>
       <button class="nav-item" data-page="settings"><span class="ico">⚙</span>Settings</button>
@@ -177,6 +178,79 @@
         <div id="activity-list" class="activity"></div>
       </section>
 
+      <!-- PRESENCE -->
+      <section class="page" id="page-presence">
+        <div class="row-actions between">
+          <div>
+            <h1>Discord Presence</h1>
+            <p class="muted">Choose what your Discord status shows. Needs the Discord desktop app open; updates every 30 seconds.</p>
+          </div>
+          <button class="btn primary" id="presence-toggle">Start</button>
+        </div>
+        <div id="presence-error" class="error hidden"></div>
+
+        <div class="card">
+          <h3 class="sec"><span>01 /</span> Presence content</h3>
+          <p class="muted small">Turn on the views you want. They rotate each refresh, or PIN one in the rotation preview below so only that one shows.</p>
+          <div class="sw-grid">
+          <label class="sw-row"><span>Latest brawler, mode, map and result</span><span class="sw"><input id="pc-latest" type="checkbox" /><i><b></b></i></span></label>
+          <label class="sw-row"><span>3v3, solo and duo victories</span><span class="sw"><input id="pc-victories" type="checkbox" /><i><b></b></i></span></label>
+          <label class="sw-row"><span>Current trophies and personal best</span><span class="sw"><input id="pc-trophies" type="checkbox" /><i><b></b></i></span></label>
+          <label class="sw-row"><span>Recent win / loss record</span><span class="sw"><input id="pc-record" type="checkbox" /><i><b></b></i></span></label>
+          <label class="sw-row"><span>Ranked rank and Elo</span><span class="sw"><input id="pc-ranked" type="checkbox" /><i><b></b></i></span></label>
+          <label class="sw-row"><span>Club name</span><span class="sw"><input id="pc-club" type="checkbox" /><i><b></b></i></span></label>
+          <label class="sw-row"><span>Win streak (only at 3+ wins in a row)</span><span class="sw"><input id="pc-streak" type="checkbox" /><i><b></b></i></span></label>
+          <label class="sw-row"><span>Current session (while you're playing)</span><span class="sw"><input id="pc-session" type="checkbox" /><i><b></b></i></span></label>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="sec"><span>02 /</span> Custom text</h3>
+          <ol class="steps small">
+            <li>Type what Discord should show in Line 1 and Line 2. Plain text works, for example “Grinding ranked tonight”.</li>
+            <li>Add live stats: click a placeholder in the list below. It's inserted where your cursor is, and replaced with your real value every refresh.</li>
+            <li>Turn on “Show custom text on Discord” to add it to the rotation, or press “Pin custom text” to show only your text.</li>
+          </ol>
+          <div class="two-col-fixed">
+            <div class="form">
+              <label>Line 1 (top line)<input id="pc-line1" type="text" maxlength="128" spellcheck="false" /></label>
+              <label>Line 2 (bottom line)<input id="pc-line2" type="text" maxlength="128" spellcheck="false" /></label>
+              <label class="sw-row"><span>Show custom text on Discord</span><span class="sw"><input id="pc-custom" type="checkbox" /><i><b></b></i></span></label>
+            </div>
+            <div>
+              <div class="muted small caps">How it looks on Discord</div>
+              <div id="pc-preview" class="dpreview"></div>
+              <button class="btn" id="pc-pin-custom" style="width:100%;margin-top:8px">Pin custom text</button>
+            </div>
+          </div>
+          <div class="muted small caps" style="margin-top:14px">Placeholders (click one to insert it)</div>
+          <div id="pc-placeholders" class="ph-grid"></div>
+        </div>
+
+        <div class="card">
+          <h3 class="sec"><span>03 /</span> Discord extras</h3>
+          <div class="two-col-fixed">
+            <div>
+              <label class="sw-row"><span>Brawler and map pictures</span><span class="sw"><input id="pc-images" type="checkbox" /><i><b></b></i></span></label>
+              <p class="muted small">Shows the brawler from your last battle as the big picture, with the map as the small badge. Pictures come from Brawlify's public image library; only the picture link goes to Discord. Your API key never leaves this PC.</p>
+            </div>
+            <div>
+              <label class="sw-row"><span>“View stats” profile button</span><span class="sw"><input id="pc-button" type="checkbox" /><i><b></b></i></span></label>
+              <p class="muted small">Adds a “View Brawl Stars stats” button that opens your Brawlify profile. Discord only shows presence buttons to other people, so you won't see it on your own profile.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="sec"><span>04 /</span> Rotation preview</h3>
+          <p class="muted small">The green outline marks what Discord shows right now. Click PIN on a view to show only that one.</p>
+          <div id="pc-rotation"></div>
+        </div>
+
+        <h2>Connection log</h2>
+        <div id="presence-log" class="log"></div>
+      </section>
+
       <!-- SETTINGS -->
       <section class="page" id="page-settings">
         <h1>Settings</h1>
@@ -187,7 +261,7 @@
             <input id="set-key" type="password" placeholder="Paste your key from developer.brawlstars.com" autocomplete="off" spellcheck="false" />
           </label>
           <label>Your player tag
-            <input id="set-tag" type="text" placeholder="e.g. 8QGVRY9UP" autocomplete="off" spellcheck="false" />
+            <input id="set-tag" type="text" placeholder="e.g. 2PP" autocomplete="off" spellcheck="false" />
           </label>
           <label>Discord application ID
             <input id="set-client" type="text" placeholder="From discord.com/developers/applications" autocomplete="off" spellcheck="false" />
@@ -218,25 +292,6 @@
             <span id="set-msg" class="inline-msg"></span>
           </div>
           <p class="hint">Your API key only works from the IP addresses you allowed when creating it. It is stored in plain text in this app's data folder, so don't share that folder.</p>
-        </div>
-
-        <h2>Discord Rich Presence</h2>
-        <div class="card">
-          <div class="row-actions between">
-            <div>
-              <strong>Show my stats on my Discord profile</strong>
-              <div class="muted small">Needs the Discord desktop app open. Updates every 30 seconds.</div>
-            </div>
-            <button class="btn primary" id="presence-toggle">Start</button>
-          </div>
-          <div class="presence-pages">
-            <strong class="small">Pages to rotate through</strong>
-            <label class="check"><input id="set-p-trophies" type="checkbox" /><span>Trophies and highest win streak</span></label>
-            <label class="check"><input id="set-p-ranked" type="checkbox" /><span>Ranked rank and elo</span></label>
-            <label class="check"><input id="set-p-session" type="checkbox" /><span>Current session (mode, map, W-L, elo) while you're playing</span></label>
-            <div class="muted small">Page changes apply within 30 seconds, no restart needed.</div>
-          </div>
-          <div id="presence-log" class="log"></div>
         </div>
       </section>
     </main>
