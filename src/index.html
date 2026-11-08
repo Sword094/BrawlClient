@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Brawl Stars Hub</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="titlebar-brand" data-tauri-drag-region>
+      <span class="logo-star">★</span>
+      <span data-tauri-drag-region>Brawl Stars Hub</span>
+    </div>
+    <div class="titlebar-buttons">
+      <button id="win-min" title="Minimize" aria-label="Minimize">&#8211;</button>
+      <button id="win-max" title="Maximize" aria-label="Maximize">&#9633;</button>
+      <button id="win-close" class="close" title="Close" aria-label="Close">&#10005;</button>
+    </div>
+  </div>
+
+  <div class="layout">
+    <nav class="sidebar">
+      <button class="nav-item active" data-page="search"><span class="ico">⌕</span>Player Search</button>
+      <button class="nav-item" data-page="favorites"><span class="ico">♥</span>Favorites</button>
+      <button class="nav-item" data-page="recent"><span class="ico">⚔</span>Recent Games</button>
+      <button class="nav-item" data-page="stats"><span class="ico">📈</span>Stats &amp; Graphs</button>
+      <button class="nav-item" data-page="recommend"><span class="ico">🎯</span>Ranked Picks</button>
+      <button class="nav-item" data-page="compare"><span class="ico">⇄</span>Compare</button>
+      <button class="nav-item" data-page="activity"><span class="ico">≣</span>Activity Log</button>
+      <div class="spacer"></div>
+      <button class="nav-item" data-page="settings"><span class="ico">⚙</span>Settings</button>
+      <div class="presence-chip" id="presence-chip">
+        <span class="dot" id="presence-dot"></span>
+        <span id="presence-label">Presence off</span>
+      </div>
+    </nav>
+
+    <main class="content">
+      <!-- SEARCH -->
+      <section class="page active" id="page-search">
+        <h1>Player Search</h1>
+        <p class="muted">Look up any player by their tag.</p>
+        <form id="search-form" class="search-box">
+          <span class="hash">#</span>
+          <input id="search-input" type="text" placeholder="Player tag, e.g. 2PP" autocomplete="off" spellcheck="false" />
+          <button type="submit" class="btn primary" id="search-btn">Search</button>
+        </form>
+        <div class="row-actions">
+          <button class="btn ghost" id="my-profile-btn">View my profile</button>
+        </div>
+        <div id="search-error" class="error hidden"></div>
+        <div id="search-loading" class="loading hidden"><div class="spinner"></div>Fetching player...</div>
+      </section>
+
+      <!-- PROFILE -->
+      <section class="page" id="page-profile">
+        <button class="btn ghost back" id="profile-back">← Back</button>
+        <div id="profile-body"></div>
+      </section>
+
+      <!-- FAVORITES -->
+      <section class="page" id="page-favorites">
+        <h1>Favorites</h1>
+        <p class="muted">Saved players are checked in the background about once a minute.</p>
+        <div id="fav-list" class="fav-grid"></div>
+      </section>
+
+      <!-- RECENT GAMES -->
+      <section class="page" id="page-recent">
+        <h1>Recent Games</h1>
+        <p class="muted">Every game this app has seen for a player, plus the API's latest 25. A ranked best-of-3 counts as one game.</p>
+        <div class="recent-controls">
+          <select id="recent-select"></select>
+          <form id="recent-form" class="mini-search">
+            <span class="hash">#</span>
+            <input id="recent-input" type="text" placeholder="or any tag" autocomplete="off" spellcheck="false" />
+            <button type="submit" class="btn">Load</button>
+          </form>
+          <button class="btn ghost" id="recent-refresh">Refresh</button>
+        </div>
+        <div id="recent-error" class="error hidden"></div>
+        <div id="recent-loading" class="loading hidden"><div class="spinner"></div>Loading games...</div>
+        <div id="recent-list"></div>
+      </section>
+
+      <!-- STATS -->
+      <section class="page" id="page-stats">
+        <h1>Stats &amp; Graphs</h1>
+        <p class="muted">Built from the games and elo readings this app has saved while tracking.</p>
+        <div class="recent-controls">
+          <select id="stats-select"></select>
+          <button class="btn ghost" id="stats-refresh">Refresh</button>
+        </div>
+        <div id="stats-body"></div>
+      </section>
+
+      <!-- RECOMMENDER -->
+      <section class="page" id="page-recommend">
+        <h1>Ranked Picks</h1>
+        <p class="muted">Suggests brawlers for a map using recent games of Diamond-and-higher players. Pick which rank to learn from, and add the brawlers banned in your match to hide them.</p>
+        <div class="rec-top">
+        <div class="card rec-controls">
+          <label>Data source
+            <select id="rec-source">
+              <option value="diamond+">Diamond and higher (all)</option>
+              <option value="diamond">Diamond only</option>
+              <option value="mythic">Mythic only</option>
+              <option value="mythic+">Mythic and higher</option>
+              <option value="legendary">Legendary only</option>
+              <option value="legendary+">Legendary and higher</option>
+              <option value="masters">Masters only</option>
+            </select>
+          </label>
+          <label>Map
+            <select id="rec-map"></select>
+          </label>
+          <label class="check"><input id="rec-ranked" type="checkbox" checked /><span>Ranked games only</span></label>
+          <label class="check"><input id="rec-owned" type="checkbox" checked /><span>Only brawlers I own</span></label>
+          <label>Banned brawlers
+            <select id="rec-ban-add"></select>
+          </label>
+          <div id="rec-bans" class="chips"></div>
+          <div class="row-actions">
+            <select id="rec-size" title="How many players to sample">
+              <option value="100">100 players (faster)</option>
+              <option value="200" selected>200 players</option>
+              <option value="300">300 players (slower)</option>
+            </select>
+            <select id="rec-speed" title="How many players are looked up at once. Higher is faster but more likely to hit the API's rate limit.">
+              <option value="2">Speed: Gentle</option>
+              <option value="4" selected>Speed: Normal</option>
+              <option value="8">Speed: Fast</option>
+              <option value="12">Speed: Max</option>
+            </select>
+            <button class="btn primary" id="rec-refresh">Refresh sample</button>
+            <button class="btn ghost" id="rec-clear-bans">Clear bans</button>
+            <span id="rec-progress" class="inline-msg"></span>
+          </div>
+          <div id="rec-status" class="muted small"></div>
+        </div>
+          <div class="rec-map" id="rec-map-box"></div>
+        </div>
+        <div id="rec-top5"></div>
+        <div id="rec-error" class="error hidden"></div>
+        <div id="rec-list"></div>
+      </section>
+
+      <!-- COMPARE -->
+      <section class="page" id="page-compare">
+        <h1>Compare Players</h1>
+        <p class="muted">Put two players side by side.</p>
+        <form id="compare-form" class="recent-controls">
+          <span class="hash">#</span><input id="cmp-a" type="text" placeholder="First tag" autocomplete="off" spellcheck="false" />
+          <span class="muted">vs</span>
+          <span class="hash">#</span><input id="cmp-b" type="text" placeholder="Second tag" autocomplete="off" spellcheck="false" />
+          <button type="submit" class="btn primary">Compare</button>
+          <button type="button" class="btn ghost" id="cmp-me">Use me as first</button>
+        </form>
+        <div id="compare-error" class="error hidden"></div>
+        <div id="compare-body"></div>
+      </section>
+
+      <!-- ACTIVITY -->
+      <section class="page" id="page-activity">
+        <h1>Activity Log</h1>
+        <p class="muted">Who is playing, when their last game was, and how each game went.</p>
+        <div id="tracker-error" class="error hidden"></div>
+        <div id="activity-status" class="fav-grid"></div>
+        <div class="section-head">
+          <h2>Log</h2>
+          <div class="row-actions">
+            <select id="activity-filter"></select>
+            <button class="btn ghost" id="activity-clear">Clear log</button>
+          </div>
+        </div>
+        <div id="activity-list" class="activity"></div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="page" id="page-settings">
+        <h1>Settings</h1>
+        <p class="muted">Saved on this computer only.</p>
+
+        <div class="card form">
+          <label>Brawl Stars API key
+            <input id="set-key" type="password" placeholder="Paste your key from developer.brawlstars.com" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>Your player tag
+            <input id="set-tag" type="text" placeholder="e.g. 8QGVRY9UP" autocomplete="off" spellcheck="false" />
+          </label>
+          <label>Discord application ID
+            <input id="set-client" type="text" placeholder="From discord.com/developers/applications" autocomplete="off" spellcheck="false" />
+          </label>
+          <label class="check">
+            <input id="set-track" type="checkbox" />
+            <span>Track me and my favorites in the background (activity log, history, elo changes)</span>
+          </label>
+          <label class="check">
+            <input id="set-tray" type="checkbox" />
+            <span>Closing the window keeps the app running in the system tray</span>
+          </label>
+          <label class="check">
+            <input id="set-login" type="checkbox" />
+            <span>Start with Windows (hidden in the tray)</span>
+          </label>
+          <label class="check">
+            <input id="set-notify" type="checkbox" />
+            <span>Desktop notifications (a favorite starts playing, rank changes)</span>
+          </label>
+          <label class="check">
+            <input id="set-autopresence" type="checkbox" />
+            <span>Start Discord Rich Presence automatically when the app opens</span>
+          </label>
+          <div class="row-actions">
+            <button class="btn primary" id="set-save">Save</button>
+            <button class="btn ghost" id="set-test">Test connection</button>
+            <span id="set-msg" class="inline-msg"></span>
+          </div>
+          <p class="hint">Your API key only works from the IP addresses you allowed when creating it. It is stored in plain text in this app's data folder, so don't share that folder.</p>
+        </div>
+
+        <h2>Discord Rich Presence</h2>
+        <div class="card">
+          <div class="row-actions between">
+            <div>
+              <strong>Show my stats on my Discord profile</strong>
+              <div class="muted small">Needs the Discord desktop app open. Updates every 30 seconds.</div>
+            </div>
+            <button class="btn primary" id="presence-toggle">Start</button>
+          </div>
+          <div class="presence-pages">
+            <strong class="small">Pages to rotate through</strong>
+            <label class="check"><input id="set-p-trophies" type="checkbox" /><span>Trophies and highest win streak</span></label>
+            <label class="check"><input id="set-p-ranked" type="checkbox" /><span>Ranked rank and elo</span></label>
+            <label class="check"><input id="set-p-session" type="checkbox" /><span>Current session (mode, map, W-L, elo) while you're playing</span></label>
+            <div class="muted small">Page changes apply within 30 seconds, no restart needed.</div>
+          </div>
+          <div id="presence-log" class="log"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+  <script src="app.js"></script>
+</body>
+</html>
