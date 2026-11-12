@@ -4,6 +4,7 @@ mod icons;
 mod matches;
 mod meta;
 mod presence;
+mod recap;
 mod settings;
 mod stats;
 mod store;
@@ -328,6 +329,9 @@ pub fn run() {
             let handle = app.handle().clone();
             let s = settings::load(&handle);
 
+            // Must run before the tracker takes its first reading of this launch.
+            recap::remember_baseline(&handle);
+
             build_tray(app)?;
             apply_tracking(&handle, s.tracking_enabled);
             apply_autostart(&handle, s.launch_at_login);
@@ -374,6 +378,8 @@ pub fn run() {
             start_presence,
             stop_presence,
             presence_running,
+            recap::get_recap,
+            recap::ack_recap,
             updater::check_update,
             updater::install_update,
             updater::whats_new,

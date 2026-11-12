@@ -1460,6 +1460,29 @@ listen("update-progress", (e) => {
   if (p.done) { $("ub-fill").style.width = "100%"; $("ub-install").textContent = "Installing…"; }
 });
 
+/* ============================ welcome back ============================ */
+
+function showRecap(r) {
+  const when = new Date(r.since * 1000).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  $("rc-since").textContent = `Since the app last saw your profile (${when})`;
+  const tile = (label, change, now, cls) => change == null ? "" :
+    `<div class="rc-tile ${change > 0 ? "pos" : "neg"} ${cls}"><div class="rc-label">${label}</div>
+     <div class="rc-big">${sign(change)}</div><div class="rc-now muted">now ${num(now)}</div></div>`;
+  $("rc-tiles").innerHTML = tile("Trophies", r.trophy_change, r.trophies_now, "") + tile("Ranked elo", r.elo_change, r.elo_now, "rc-elo");
+  $("rc-games").textContent = r.games
+    ? `About ${r.games} game${r.games === 1 ? "" : "s"} in that time: ${r.wins} won, ${r.losses} lost${r.games >= 25 ? " (the game log only goes back 25 battles)" : ""}.`
+    : "";
+  $("recap").classList.remove("hidden");
+  $("rc-close").onclick = () => { $("recap").classList.add("hidden"); invoke("ack_recap").catch(() => {}); };
+}
+
+async function maybeRecap() {
+  try {
+    const r = await invoke("get_recap");
+    if (r) showRecap(r);
+  } catch (e) { console.warn("recap:", e); } // offline etc.: it stays pending for next time
+}
+
 /* =============================== boot =============================== */
 
 (async () => {
@@ -1472,8 +1495,9 @@ listen("update-progress", (e) => {
     invoke("app_version").then((v) => { $("upd-version").textContent = v; }).catch(() => {});
     // Just updated? Show what changed (once).
     invoke("whats_new", { force: false }).then((w) => {
-      if (w) showWhatsNew(`Updated to version ${w.version}`, w.notes, () => invoke("ack_whats_new").catch(() => {}));
-    }).catch(() => {});
+      if (w) showWhatsNew(`Updated to version ${w.version}`, w.notes, () => { invoke("ack_whats_new").catch(() => {}); maybeRecap(); });
+      else maybeRecap();
+    }).catch(() => maybeRecap());
     setTimeout(() => checkForUpdate(false), 5000);
     setInterval(() => checkForUpdate(false), 6 * 3600 * 1000);
   } catch (e) {

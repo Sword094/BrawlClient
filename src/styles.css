@@ -584,3 +584,12 @@ i.hm.off { background: transparent; }
 .md li { margin: 4px 0; line-height: 1.45; }
 .md code { background: var(--bg-2); padding: 1px 5px; border-radius: 4px; }
 .modal .row-actions { margin-top: 16px; }
+
+/* ---- welcome back ---- */
+.rc-tiles { display: flex; gap: 12px; margin: 14px 0; flex-wrap: wrap; }
+.rc-tile { flex: 1; min-width: 160px; padding: 14px 16px; border-radius: 12px; background: var(--bg-2); border: 1px solid var(--border); }
+.rc-label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+.rc-big { font-size: 34px; font-weight: 800; margin: 4px 0; }
+.rc-tile.pos .rc-big { color: var(--good); }
+.rc-tile.neg .rc-big { color: var(--bad); }
+.rc-tile.rc-elo .rc-label { color: #b79cff; }

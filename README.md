@@ -18,6 +18,7 @@ A standalone Windows app (Tauri v2 + Rust) for looking up Brawl Stars players, t
 - **Tray, autostart, notifications:** closing the window can keep the app running in the system tray (right-click the tray icon and choose Quit to exit), the app can start with Windows hidden in the tray, and it can notify you when a favorite starts playing or a rank changes.
 - **Activity log:** who is playing, when each tracked player's last game was, and how each game went.
 - **Discord Presence page:** choose which pages rotate (latest match, trophies, ranked, win streak, victories, recent record, session, club), write your own two lines with placeholders like `{brawler}`, `{trophies}`, `{elo}`, `{winrate}` (click one to insert it), pin a single page, show brawler/map pictures and a "View Brawl Stars stats" button, and see a live preview of what Discord will show.
+- **Welcome back popup:** when you open the app, it shows how many trophies and how much ranked elo you gained or lost while it was closed (only if something changed).
 - **Tags are always uppercase** in the search, compare and settings boxes.
 
 ## What the Brawl Stars API can and can't do
