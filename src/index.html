@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Brawl Stars Hub</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="themes.css" />
+  <script>try { var t = localStorage.getItem("bsh-theme"); if (t && t !== "default") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 </head>
 <body>
   <div class="titlebar" data-tauri-drag-region>
@@ -292,6 +294,11 @@
             <span id="set-msg" class="inline-msg"></span>
           </div>
           <p class="hint">Your API key only works from the IP addresses you allowed when creating it. It is stored in plain text in this app's data folder, so don't share that folder.</p>
+        </div>
+
+        <div class="card" id="appearance-card">
+          <h2 style="margin-top:0">Appearance</h2>
+          <div class="theme-grid" id="theme-grid"></div>
         </div>
 
         <div class="card form" id="update-card">

@@ -695,8 +695,8 @@ function lineChart(points, { color, unit }) {
     ${grid}
     <text x="${L}" y="${H - 6}" class="gt">${esc(fmt(t0))}</text>
     <text x="${W - R}" y="${H - 6}" text-anchor="end" class="gt">${esc(fmt(t1))}</text>
-    <path d="${d}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linejoin="round"/>
-    <circle cx="${x(last[0])}" cy="${y(last[1])}" r="4" fill="${color}"/>
+    <path d="${d}" fill="none" style="stroke:${color}" stroke-width="2.2" stroke-linejoin="round"/>
+    <circle cx="${x(last[0])}" cy="${y(last[1])}" r="4" style="fill:${color}"/>
   </svg>
   <div class="chart-foot muted small">Latest ${num(last[1])} ${esc(unit)} · low ${num(Math.min(...pts.map((p) => p[1])))} · high ${num(Math.max(...pts.map((p) => p[1])))}</div>`;
 }
@@ -728,6 +728,8 @@ function sessionRows(list) {
 /* ---- overview: tiles, daily heat map, trophy / elo graph ---- */
 let statsData = null, statsMetric = "trophies", statsRange = "all", heatMode = "battles", clearArmed = false;
 const DAY = 86400;
+// Heat-map colours follow the theme: a theme colour at some opacity.
+const mix = (v, a) => `color-mix(in srgb, var(${v}) ${Math.round(a * 100)}%, transparent)`;
 const dayKey = (d) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 
 // Last 40 weeks as columns (Sunday on top). Each day: battles, wins, losses.
@@ -755,8 +757,8 @@ function heatMap(days, mode) {
       if (c) {
         const rate = Math.round((c.w / Math.max(1, c.w + c.l)) * 100);
         const a = (0.25 + 0.75 * (c.n / maxN)).toFixed(2);
-        if (mode === "battles") style = `background:rgba(255,206,0,${a})`;
-        else style = c.w > c.l ? `background:rgba(61,214,140,${a})` : c.w < c.l ? `background:rgba(255,92,92,${a})` : `background:rgba(150,150,170,${a})`;
+        if (mode === "battles") style = `background:${mix("--accent", a)}`;
+        else style = c.w > c.l ? `background:${mix("--good", a)}` : c.w < c.l ? `background:${mix("--bad", a)}` : `background:${mix("--muted", a)}`;
         tip = `${label}: ${c.n} battle${c.n === 1 ? "" : "s"} · ${c.w}W–${c.l}L · ${rate}% win rate`;
       }
       cells += `<i class="hm" style="${style}" data-tip="${esc(tip)}"></i>`;
@@ -766,9 +768,10 @@ function heatMap(days, mode) {
     lastMonth = m;
     cols += `<div class="hm-col">${cells}</div>`;
   }
+  const sw = (v, a) => `<i class="hm" style="background:${mix(v, a)}"></i>`;
   const legend = mode === "battles"
-    ? `<span class="hm-key"><i class="hm" style="background:rgba(255,206,0,.25)"></i> few <i class="hm" style="background:rgba(255,206,0,1)"></i> many battles</span>`
-    : `<span class="hm-key"><i class="hm" style="background:rgba(61,214,140,.8)"></i> more wins <i class="hm" style="background:rgba(150,150,170,.8)"></i> even <i class="hm" style="background:rgba(255,92,92,.8)"></i> more losses</span>`;
+    ? `<span class="hm-key">${sw("--accent", 0.25)} few ${sw("--accent", 1)} many battles</span>`
+    : `<span class="hm-key">${sw("--good", 0.8)} more wins ${sw("--muted", 0.8)} even ${sw("--bad", 0.8)} more losses</span>`;
   return `<div class="hm-wrap"><div class="hm-months">${months}</div><div class="hm-grid">${cols}</div></div><div class="chart-foot muted small">${legend}</div>`;
 }
 
@@ -831,7 +834,7 @@ function chartSection() {
       ${seg("", "metric", statsMetric, [["trophies", "Trophies"], ["elo", "Ranked elo"]])}
       ${seg("", "range", statsRange, [["today", "Today"], ["7", "7 days"], ["30", "30 days"], ["all", "All time"]])}</div></div>
     <div class="card">${gainLine(ranged, elo ? "elo" : "trophies")}${lineChart(ranged,
-      elo ? { color: "#b79cff", unit: "elo" } : { color: "#ffce00", unit: "trophies" })}</div>`;
+      elo ? { color: "var(--elo)", unit: "elo" } : { color: "var(--accent)", unit: "trophies" })}</div>`;
 }
 
 function heatSection() {
@@ -1384,6 +1387,49 @@ $("pc-pin-custom").onclick = () =>
 listen("presence-view", (e) => { pcCurrent = e.payload; if (currentPage === "presence") pcRenderRotation(); });
 listen("presence-log", (e) => logLine(e.payload));
 listen("presence-status", (e) => setPresenceUI(!!e.payload));
+
+/* ============================== themes =============================== */
+
+// [id, name, one-line description, [background, panel, accent] for the preview swatch]
+const THEMES = [
+  ["default",  "Brawl Night", "The original. Deep purple, gold accents, rounded cards.", ["#0f0d1c", "#1c1833", "#ffce00"]],
+  ["glass",    "Glass",       "Frosted translucent panels over a colourful glow.",       ["#1b2a4a", "#4a5a8a", "#5ee7ff"]],
+  ["brutal",   "Neo Brutal",  "Light, thick black outlines, hard offset shadows.",       ["#fff4d6", "#ffffff", "#ff5c8a"]],
+  ["terminal", "Terminal",    "Green-on-black, monospace, sharp square corners.",        ["#050b07", "#0a140d", "#39ff88"]],
+  ["paper",    "Paper",       "Warm light theme, soft shadows, pill shapes.",            ["#f6efe6", "#fffaf3", "#d9663a"]],
+  ["ember",    "Ember",       "Angular cut corners, charcoal and red-orange.",           ["#111214", "#1c1e22", "#ff5a36"]],
+  ["pastel",   "Midnight Pastel", "Cozy dark lavender with soft pastel colours.",         ["#1e1e2e", "#313244", "#cba6f7"]],
+  ["synthwave","Synthwave",   "Neon pink and cyan glow over a retro sunset grid.",       ["#0d0221", "#2a0f55", "#ff2fb3"]],
+  ["blueprint","Blueprint",   "Technical drawing: blue grid paper, dashed lines.",       ["#0b2a4a", "#134270", "#ffd34d"]],
+  ["arcade",   "Brawl Arcade","Bold game-menu style: bright blue, chunky outlines.",     ["#2a6bff", "#101c4d", "#ffd21f"]],
+  ["slate",    "Slate",       "Minimal and flat, like a developer tool.",                ["#0b0c0e", "#1b1e24", "#5b8cff"]],
+];
+
+function currentTheme() {
+  try { return localStorage.getItem("bsh-theme") || "default"; } catch { return "default"; }
+}
+
+function applyTheme(id) {
+  if (!THEMES.some((t) => t[0] === id)) id = "default";
+  if (id === "default") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = id;
+  try { localStorage.setItem("bsh-theme", id); } catch {}
+  renderThemePicker();
+}
+
+function renderThemePicker() {
+  const cur = currentTheme();
+  $("theme-grid").innerHTML = THEMES.map(([id, name, desc, [bg, panel, accent]]) => `
+    <button class="theme-tile ${id === cur ? "on" : ""}" data-theme-id="${id}">
+      <span class="theme-sw" style="background:${bg}"><i style="background:${panel}"></i><i style="background:${accent}"></i></span>
+      <b>${esc(name)}</b><span class="muted small">${esc(desc)}</span>
+    </button>`).join("");
+}
+$("theme-grid").onclick = (ev) => {
+  const t = ev.target.closest("[data-theme-id]");
+  if (t) applyTheme(t.dataset.themeId);
+};
+renderThemePicker();
 
 /* ============================== updates ============================== */
 
