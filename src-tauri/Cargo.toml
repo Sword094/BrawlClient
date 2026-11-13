@@ -1,6 +1,6 @@
 [package]
 name = "brawl-stars-hub"
-version = "0.2.3"
+version = "0.2.4"
 description = "Brawl Stars stats viewer with Discord Rich Presence"
 edition = "2021"
 

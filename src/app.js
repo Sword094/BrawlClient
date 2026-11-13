@@ -847,14 +847,18 @@ function heatSection() {
 function paintStats() {
   const r = statsData, s = r.summary;
   $("stats-body").innerHTML = `
-    ${statsTiles(s)}
-    ${heatSection()}
-    ${chartSection()}
-    <div class="section-head"><h2>Win rates</h2></div>
-    <div class="two-col">${rateTable("By brawler", s.by_brawler, true)}${rateTable("By mode", s.by_mode, false)}${rateTable("By map", s.by_map, false)}</div>
-    <div class="section-head"><h2>Recent sessions</h2></div>
-    ${sessionRows(r.sessions)}
-    <div class="danger-row"><button class="btn ghost danger" id="stats-clear">${clearArmed ? "Click again to delete saved history" : "Clear history"}</button>
+    <div class="st-tiles">${statsTiles(s)}</div>
+    <div class="st-activity">${heatSection()}</div>
+    <div class="st-chart">${chartSection()}</div>
+    <div class="st-rates">
+      <div class="section-head"><h2>Win rates</h2></div>
+      <div class="two-col">${rateTable("By brawler", s.by_brawler, true)}${rateTable("By mode", s.by_mode, false)}${rateTable("By map", s.by_map, false)}</div>
+    </div>
+    <div class="st-sessions">
+      <div class="section-head"><h2>Recent sessions</h2></div>
+      ${sessionRows(r.sessions)}
+    </div>
+    <div class="st-danger danger-row"><button class="btn ghost danger" id="stats-clear">${clearArmed ? "Click again to delete saved history" : "Clear history"}</button>
       <span class="muted small">Deletes this player's saved games and graphs from this computer only.</span></div>`;
 }
 
@@ -1404,6 +1408,65 @@ const THEMES = [
   ["arcade",   "Brawl Arcade","Bold game-menu style: bright blue, chunky outlines.",     ["#2a6bff", "#101c4d", "#ffd21f"]],
   ["slate",    "Slate",       "Minimal and flat, like a developer tool.",                ["#0b0c0e", "#1b1e24", "#5b8cff"]],
 ];
+
+// Navigation and page layouts: [id, name, description]. Applied as data-nav / data-content on <html>.
+const NAV_LAYOUTS = [
+  ["sidebar", "Sidebar",       "Labels always visible on the left (current)."],
+  ["rail",    "Icon rail",     "Slim icon strip; names appear on hover."],
+  ["top",     "Top tabs",      "A tab bar across the top; the page gets full width."],
+  ["dock",    "Floating dock", "Icon dock floating at the bottom of the window."],
+  ["grouped", "Grouped",       "Left sidebar split into Players, Games and App."],
+];
+const CONTENT_LAYOUTS = [
+  ["cards",   "Cards",      "Roomy stacked cards (current)."],
+  ["compact", "Compact",    "Dense cards with players inline; fits more on screen."],
+  ["list",    "List",       "Flat aligned rows like a table; click a row for details."],
+  ["columns", "Two columns","Games and stats side by side."],
+  ["focus",   "Focus",      "One narrow centred column, large type."],
+];
+// Tiny wireframes for the picker (84x54).
+function wire(kind) {
+  const r = (x, y, w, h, o = 0.55, rx = 2) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="currentColor" opacity="${o}"/>`;
+  const body = {
+    sidebar: r(4, 4, 20, 46, 0.25) + [10, 17, 24, 31].map((y) => r(8, y, 12, 4)).join("") + r(30, 8, 50, 8, 0.7) + r(30, 22, 50, 12, 0.3) + r(30, 38, 50, 12, 0.3),
+    rail:    r(4, 4, 8, 46, 0.25) + [10, 18, 26, 34].map((y) => r(6, y, 4, 4, 0.8, 2)).join("") + r(18, 8, 62, 8, 0.7) + r(18, 22, 62, 12, 0.3) + r(18, 38, 62, 12, 0.3),
+    top:     r(4, 4, 76, 8, 0.25) + [8, 22, 36, 50].map((x) => r(x, 6, 10, 4, 0.8)).join("") + r(8, 18, 68, 8, 0.7) + r(8, 30, 68, 20, 0.3),
+    dock:    r(8, 6, 68, 8, 0.7) + r(8, 18, 68, 18, 0.3) + r(24, 41, 36, 9, 0.35, 4) + [29, 37, 45, 53].map((x) => r(x, 44, 3, 3, 0.9, 2)).join(""),
+    grouped: r(4, 4, 24, 46, 0.25) + r(8, 8, 10, 2, 0.9) + r(8, 12, 16, 3) + r(8, 17, 16, 3) + r(8, 24, 10, 2, 0.9) + r(8, 28, 16, 3) + r(8, 33, 16, 3) + r(8, 38, 16, 3) + r(34, 8, 46, 8, 0.7) + r(34, 22, 46, 12, 0.3) + r(34, 38, 46, 12, 0.3),
+    cards:   r(6, 6, 72, 13, 0.3, 4) + r(6, 22, 72, 13, 0.3, 4) + r(6, 38, 72, 11, 0.3, 4),
+    compact: [6, 13, 20, 27, 34, 41].map((y) => r(6, y, 72, 5, 0.3, 2)).join("") + r(8, 7, 20, 3, 0.8),
+    list:    [6, 16, 26, 36, 46].map((y) => r(6, y, 14, 4, 0.8) + r(24, y, 30, 4, 0.5) + r(60, y, 18, 4, 0.3) + r(6, y + 7, 72, 1, 0.25, 0)).join(""),
+    columns: r(6, 6, 34, 13, 0.3, 3) + r(44, 6, 34, 13, 0.3, 3) + r(6, 22, 34, 13, 0.3, 3) + r(44, 22, 34, 13, 0.3, 3) + r(6, 38, 34, 11, 0.3, 3) + r(44, 38, 34, 11, 0.3, 3),
+    focus:   r(26, 4, 32, 6, 0.8) + r(22, 14, 40, 12, 0.3, 4) + r(22, 30, 40, 12, 0.3, 4) + r(22, 46, 40, 5, 0.3, 4),
+  }[kind];
+  return `<svg viewBox="0 0 84 54" width="84" height="54" class="wire"><rect x="1" y="1" width="82" height="52" rx="5" fill="none" stroke="currentColor" opacity="0.35"/>${body}</svg>`;
+}
+const lsGet = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } };
+function applyLayout(kind, id) { // kind: "nav" | "content"
+  const def = kind === "nav" ? "sidebar" : "cards";
+  if (id === def) delete document.documentElement.dataset[kind];
+  else document.documentElement.dataset[kind] = id;
+  try { localStorage.setItem("bsh-" + kind, id); } catch {}
+  renderLayoutPickers();
+}
+function renderLayoutPickers() {
+  const draw = (gridId, list, cur) => {
+    $(gridId).innerHTML = list.map(([id, name, desc]) => `
+      <button class="theme-tile layout-tile ${id === cur ? "on" : ""}" data-layout-id="${id}">
+        ${wire(id)}<b>${esc(name)}</b><span class="muted small">${esc(desc)}</span>
+      </button>`).join("");
+  };
+  draw("nav-grid", NAV_LAYOUTS, lsGet("bsh-nav", "sidebar"));
+  draw("content-grid", CONTENT_LAYOUTS, lsGet("bsh-content", "cards"));
+}
+$("nav-grid").onclick = (ev) => { const t = ev.target.closest("[data-layout-id]"); if (t) applyLayout("nav", t.dataset.layoutId); };
+$("content-grid").onclick = (ev) => { const t = ev.target.closest("[data-layout-id]"); if (t) applyLayout("content", t.dataset.layoutId); };
+// Names for the icon-only layouts (hover tooltips / accessibility).
+document.querySelectorAll(".nav-item").forEach((b) => {
+  const label = [...b.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim();
+  b.dataset.label = label; b.title = label;
+});
+renderLayoutPickers();
 
 function currentTheme() {
   try { return localStorage.getItem("bsh-theme") || "default"; } catch { return "default"; }

@@ -20,6 +20,7 @@ A standalone Windows app (Tauri v2 + Rust) for looking up Brawl Stars players, t
 - **Discord Presence page:** choose which pages rotate (latest match, trophies, ranked, win streak, victories, recent record, session, club), write your own two lines with placeholders like `{brawler}`, `{trophies}`, `{elo}`, `{winrate}` (click one to insert it), pin a single page, show brawler/map pictures and a "View Brawl Stars stats" button, and see a live preview of what Discord will show.
 - **Welcome back popup:** when you open the app, it shows how many trophies and how much ranked elo you gained or lost while it was closed (only if something changed).
 - **Themes:** pick a look in **Settings > Appearance**: Brawl Night (original), Glass, Neo Brutal, Terminal, Paper, Ember, Midnight Pastel, Synthwave, Blueprint, Brawl Arcade or Slate. Your choice is remembered. Themes are plain CSS variables in `src/themes.css`, so adding your own is a copy-and-edit job.
+- **Layouts:** also in **Settings > Appearance**, independent of the theme. Navigation: Sidebar, Icon rail, Top tabs, Floating dock, Grouped sidebar. Page layout: Cards, Compact, List, Columns, Focus. Both live in `src/layouts.css`.
 - **Tags are always uppercase** in the search, compare and settings boxes.
 
 ## What the Brawl Stars API can and can't do

@@ -308,7 +308,7 @@ dependencies = [
 
 [[package]]
 name = "brawl-stars-hub"
-version = "0.2.1"
+version = "0.2.4"
 dependencies = [
  "discord-rich-presence",
  "futures",

@@ -1,5 +1,6 @@
-## What's new in 0.2.3
+## What's new in 0.2.4
 
-- **10 themes:** pick a look in Settings > Appearance (Glass, Neo Brutal, Terminal, Paper, Ember, Midnight Pastel, Synthwave, Blueprint, Brawl Arcade, Slate).
-- **Welcome back popup:** shows trophies and elo gained or lost while the app was closed.
-- **Automatic updates** now work end to end.
+- **Layouts:** pick how the app is arranged in **Settings > Appearance**, separate from the colour theme.
+  - **Navigation:** Sidebar, Icon rail, Top tabs, Floating dock, or Grouped sidebar.
+  - **Page layout:** Cards, Compact, List, Columns, or Focus.
+- Your choices are remembered between launches.

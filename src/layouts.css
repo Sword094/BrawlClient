@@ -1,0 +1,145 @@
+/* Layouts. Independent of colour themes: html[data-nav] changes the category panel (sidebar),
+   html[data-content] changes how page contents are arranged. No attribute = the original look. */
+
+.nav-group { display: none; }
+.ap-h { margin: 18px 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); }
+.ap-h:first-of-type { margin-top: 0; }
+.layout-tile .wire { color: var(--muted); display: block; margin-bottom: 4px; }
+.layout-tile.on .wire { color: var(--accent); }
+
+/* =====================================================================
+   NAVIGATION LAYOUTS
+   ===================================================================== */
+
+/* ---- icon rail: slim strip, names on hover ---- */
+html[data-nav="rail"] .sidebar { width: 68px; padding: 12px 10px; align-items: center; }
+html[data-nav="rail"] .nav-item { position: relative; width: 46px; height: 44px; padding: 0; justify-content: center; font-size: 0; gap: 0; }
+html[data-nav="rail"] .nav-item .ico { font-size: 19px; width: auto; }
+html[data-nav="rail"] .nav-item .soon { display: none; }
+html[data-nav="rail"] .nav-item:hover::after {
+  content: attr(data-label); position: absolute; left: calc(100% + 12px); top: 50%; transform: translateY(-50%);
+  padding: 6px 11px; white-space: nowrap; z-index: 70; font-size: 12.5px; font-weight: 600; letter-spacing: 0; text-transform: none;
+  color: var(--text); background: var(--panel-2); border: var(--bw) var(--bs) var(--border); border-radius: var(--r-sm); box-shadow: var(--shadow-pop);
+}
+html[data-nav="rail"] .presence-chip { width: 46px; height: 40px; padding: 0; justify-content: center; margin-top: 8px; }
+html[data-nav="rail"] #presence-label { display: none; }
+html[data-nav="rail"] .content { padding-left: 28px; }
+
+/* ---- top tabs ---- */
+html[data-nav="top"] .layout { flex-direction: column; }
+html[data-nav="top"] .sidebar {
+  width: auto; flex-direction: row; align-items: center; gap: 2px; padding: 6px 14px; overflow-x: auto; overflow-y: hidden;
+  border-right: 0; border-bottom: var(--bw) var(--bs) var(--border);
+}
+html[data-nav="top"] .nav-item { width: auto; flex: none; white-space: nowrap; padding: 9px 13px; font-size: 13px; gap: 7px; border-radius: var(--r-md); }
+html[data-nav="top"] .nav-item .ico { font-size: 14px; width: auto; }
+html[data-nav="top"] .nav-item.active { background: transparent; box-shadow: inset 0 -3px 0 var(--accent); border-radius: var(--r-xs); }
+html[data-nav="top"] .presence-chip { margin: 0 0 0 8px; padding: 7px 12px; flex: none; white-space: nowrap; }
+html[data-nav="top"] .spacer { min-width: 8px; }
+html[data-nav="top"] .content { padding-top: 22px; }
+
+/* ---- floating dock ---- */
+html[data-nav="dock"] .layout { display: block; position: relative; }
+html[data-nav="dock"] .content { height: 100%; padding: 26px 40px 120px; }
+html[data-nav="dock"] .sidebar {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 40;
+  width: auto; flex-direction: row; align-items: center; gap: 2px; padding: 8px 10px;
+  border: var(--bw) var(--bs) var(--border); border-radius: 26px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: var(--shadow-pop); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+}
+html[data-nav="dock"] .spacer { display: none; }
+html[data-nav="dock"] .nav-item {
+  position: relative; flex-direction: column; justify-content: center; gap: 3px; width: auto; min-width: 66px; padding: 8px 10px;
+  font-size: 10.5px; text-align: center; border-radius: 16px;
+}
+html[data-nav="dock"] .nav-item .ico { font-size: 20px; width: auto; }
+html[data-nav="dock"] .nav-item .soon { display: none; }
+html[data-nav="dock"] .nav-item.active { box-shadow: inset 0 0 0 1.5px var(--accent); }
+html[data-nav="dock"] .presence-chip { margin: 0 0 0 6px; width: 46px; height: 46px; padding: 0; justify-content: center; border-radius: 16px; }
+html[data-nav="dock"] #presence-label { display: none; }
+
+/* ---- grouped sections ---- */
+html[data-nav="grouped"] .sidebar { width: 236px; padding: 10px 12px 14px; gap: 1px; }
+html[data-nav="grouped"] .nav-group {
+  display: block; margin: 16px 12px 5px; font-size: 10.5px; font-weight: 800; letter-spacing: 1.1px; text-transform: uppercase; color: var(--muted); opacity: 0.8;
+}
+html[data-nav="grouped"] .nav-group:first-child { margin-top: 6px; }
+html[data-nav="grouped"] .nav-item { padding: 8px 12px; font-size: 13px; font-weight: 600; }
+html[data-nav="grouped"] .nav-item .ico { font-size: 15px; }
+
+/* =====================================================================
+   PAGE LAYOUTS
+   ===================================================================== */
+
+/* ---- compact: dense cards, players inline ---- */
+html[data-content="compact"] .content { padding: 16px 22px 28px; }
+html[data-content="compact"] h1 { font-size: 20px; }
+html[data-content="compact"] .page > p.muted { display: none; }
+html[data-content="compact"] .battle { margin-top: 6px; padding: 7px 12px; border-left-width: 4px; }
+html[data-content="compact"] .b-head { gap: 4px 12px; }
+html[data-content="compact"] .b-res { font-size: 14px; }
+html[data-content="compact"] .teams { display: block; margin-top: 6px; background: none; border-top: 0; }
+html[data-content="compact"] .team { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 4px; padding: 0; background: none; }
+html[data-content="compact"] .team h5 { width: 76px; flex: none; margin: 0 4px 0 0; }
+html[data-content="compact"] .pl { width: auto; flex: none; padding: 3px 9px; min-height: 0; }
+html[data-content="compact"] .notice { padding: 6px 10px; font-size: 12px; }
+html[data-content="compact"] .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 10px; }
+html[data-content="compact"] .stat { padding: 9px 12px; }
+html[data-content="compact"] .stat .value { font-size: 19px; margin-top: 2px; }
+html[data-content="compact"] .stat .sub { display: none; }
+html[data-content="compact"] .section-head { margin: 18px 0 8px; }
+html[data-content="compact"] i.hm { width: 14px; height: 14px; }
+html[data-content="compact"] .hm-months span { width: 14px; }
+
+/* ---- list: flat aligned rows (details open on click) ---- */
+html[data-content="list"] .content { padding: 22px 30px 34px; }
+html[data-content="list"] .battle {
+  margin-top: 0; padding: 9px 8px; border-radius: 0; background: transparent; box-shadow: none; clip-path: none;
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+  border-width: 0 0 1px 0; border-left: 4px solid var(--muted);
+}
+html[data-content="list"] .battle.win { border-left-color: var(--good); }
+html[data-content="list"] .battle.loss { border-left-color: var(--bad); }
+html[data-content="list"] .battle.draw { border-left-color: var(--accent); }
+html[data-content="list"] .battle:hover { background: var(--panel); }
+html[data-content="list"] .teams { display: none; }
+html[data-content="list"] .b-head { flex-wrap: nowrap; gap: 0; }
+html[data-content="list"] .b-res { width: 84px; flex: none; }
+html[data-content="list"] .b-head .score { width: 46px; flex: none; }
+html[data-content="list"] .b-head .rounds { width: 58px; flex: none; }
+html[data-content="list"] .b-head .delta { width: 92px; flex: none; text-align: center; margin-right: 18px; }
+html[data-content="list"] .b-mode { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-content="list"] .b-when { white-space: nowrap; }
+html[data-content="list"] #recent-list { border-top: 1px solid var(--border); margin-top: 14px; }
+html[data-content="list"] #recent-list > .notice { margin: 0 0 10px; }
+html[data-content="list"] .grid { grid-template-columns: repeat(4, 1fr); gap: 0; border: var(--bw) var(--bs) var(--border); border-radius: var(--radius); overflow: hidden; }
+html[data-content="list"] .stat { border: 0; border-radius: 0; background: transparent; box-shadow: none; clip-path: none; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+
+/* ---- two columns ---- */
+html[data-content="columns"] .content { padding: 24px 28px 36px; }
+html[data-content="columns"] #recent-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; align-items: start; }
+html[data-content="columns"] #recent-list > .notice, html[data-content="columns"] #recent-list > .empty { grid-column: 1 / -1; }
+html[data-content="columns"] .teams { gap: 8px; }
+html[data-content="columns"] .pl { padding: 6px 8px; }
+html[data-content="columns"] #stats-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 22px; align-items: start; }
+html[data-content="columns"] .st-tiles, html[data-content="columns"] .st-activity, html[data-content="columns"] .st-rates, html[data-content="columns"] .st-danger { grid-column: 1 / -1; }
+html[data-content="columns"] .st-tiles { order: 0; } html[data-content="columns"] .st-activity { order: 1; }
+html[data-content="columns"] .st-chart { order: 2; } html[data-content="columns"] .st-sessions { order: 3; }
+html[data-content="columns"] .st-rates { order: 4; } html[data-content="columns"] .st-danger { order: 5; }
+html[data-content="columns"] .grid { grid-template-columns: repeat(4, 1fr); }
+
+/* ---- focus: one narrow centred column ---- */
+html[data-content="focus"] .content { padding: 38px 24px 64px; }
+html[data-content="focus"] .page { max-width: 740px; margin: 0 auto; }
+html[data-content="focus"] h1 { font-size: 32px; letter-spacing: -0.4px; }
+html[data-content="focus"] .page > p.muted { font-size: 15px; margin-bottom: 18px; }
+html[data-content="focus"] .battle { margin-top: 20px; padding: 18px 22px; }
+html[data-content="focus"] .teams { grid-template-columns: 1fr; gap: 10px; }
+html[data-content="focus"] .b-when { margin-left: 0; width: 100%; text-align: left; }
+html[data-content="focus"] .grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+html[data-content="focus"] .stat .value { font-size: 28px; }
+html[data-content="focus"] .two-col { grid-template-columns: 1fr; }
+html[data-content="focus"] i.hm { width: 14px; height: 14px; }
+html[data-content="focus"] .hm-months span { width: 14px; }
+html[data-content="focus"] .section-head { margin: 36px 0 12px; }

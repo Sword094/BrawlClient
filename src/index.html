@@ -6,7 +6,8 @@
   <title>Brawl Stars Hub</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="themes.css" />
-  <script>try { var t = localStorage.getItem("bsh-theme"); if (t && t !== "default") document.documentElement.dataset.theme = t; } catch (e) {}</script>
+  <link rel="stylesheet" href="layouts.css" />
+  <script>try { var t = localStorage.getItem("bsh-theme"); if (t && t !== "default") document.documentElement.dataset.theme = t; var n = localStorage.getItem("bsh-nav"), c = localStorage.getItem("bsh-content"); if (n && n !== "sidebar") document.documentElement.dataset.nav = n; if (c && c !== "cards") document.documentElement.dataset.content = c; } catch (e) {}</script>
 </head>
 <body>
   <div class="titlebar" data-tauri-drag-region>
@@ -23,12 +24,15 @@
 
   <div class="layout">
     <nav class="sidebar">
+      <div class="nav-group">Players</div>
       <button class="nav-item active" data-page="search"><span class="ico">⌕</span>Player Search</button>
       <button class="nav-item" data-page="favorites"><span class="ico">♥</span>Favorites</button>
+      <div class="nav-group">Games</div>
       <button class="nav-item" data-page="recent"><span class="ico">⚔</span>Recent Games</button>
       <button class="nav-item" data-page="stats"><span class="ico">📈</span>Stats &amp; Graphs</button>
       <button class="nav-item" data-page="recommend"><span class="ico">🎯</span>Ranked Picks</button>
       <button class="nav-item" data-page="compare"><span class="ico">⇄</span>Compare</button>
+      <div class="nav-group">App</div>
       <button class="nav-item" data-page="presence"><span class="ico">🎮</span>Discord Presence</button>
       <button class="nav-item" data-page="activity"><span class="ico">≣</span>Activity Log</button>
       <div class="spacer"></div>
@@ -298,7 +302,12 @@
 
         <div class="card" id="appearance-card">
           <h2 style="margin-top:0">Appearance</h2>
+          <h3 class="ap-h">Colour theme</h3>
           <div class="theme-grid" id="theme-grid"></div>
+          <h3 class="ap-h">Navigation layout</h3>
+          <div class="theme-grid" id="nav-grid"></div>
+          <h3 class="ap-h">Page layout</h3>
+          <div class="theme-grid" id="content-grid"></div>
         </div>
 
         <div class="card form" id="update-card">
