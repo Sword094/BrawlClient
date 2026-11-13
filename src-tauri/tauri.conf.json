@@ -38,7 +38,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNBODkyOTQ0REVDNzE4MUUKUldRZUdNZmVSQ21KT2s0cnk3dXNTSm5FUGxoYWgxQVVBYW9rU1pHSnp4OWZlVFhjTVZEUXB6RGQK",
       "endpoints": [
         "https://github.com/Sword094/BrawlClient/releases/latest/download/latest.json"
       ]
