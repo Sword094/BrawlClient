@@ -123,9 +123,9 @@ html[data-content="columns"] #recent-list > .notice, html[data-content="columns"
 html[data-content="columns"] .teams { gap: 8px; }
 html[data-content="columns"] .pl { padding: 6px 8px; }
 html[data-content="columns"] #stats-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 22px; align-items: start; }
-html[data-content="columns"] .st-tiles, html[data-content="columns"] .st-goals, html[data-content="columns"] .st-activity, html[data-content="columns"] .st-rates, html[data-content="columns"] .st-danger { grid-column: 1 / -1; }
+html[data-content="columns"] .st-tiles, html[data-content="columns"] .st-goals, html[data-content="columns"] .st-activity, html[data-content="columns"] .st-rates, html[data-content="columns"] .st-day, html[data-content="columns"] .st-danger { grid-column: 1 / -1; }
 html[data-content="columns"] .st-tiles { order: 0; } html[data-content="columns"] .st-activity { order: 1; }
-html[data-content="columns"] .st-chart { order: 2; } html[data-content="columns"] .st-sessions { order: 3; }
+html[data-content="columns"] .st-chart { order: 2; } html[data-content="columns"] .st-day { order: 2; } html[data-content="columns"] .st-sessions { order: 3; }
 html[data-content="columns"] .st-rates { order: 4; } html[data-content="columns"] .st-danger { order: 5; }
 html[data-content="columns"] .grid { grid-template-columns: repeat(4, 1fr); }
 

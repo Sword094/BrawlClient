@@ -7,6 +7,9 @@
 - **Discord presence:** a "Just finished" result for a few minutes after a game, and an optional "Taking a break" status after a while idle.
 - **Backup and export:** back up and restore all your data (Settings > Your data), export games as CSV, and save the graph as an image. Files go to your Downloads folder.
 
+**Stats**
+- **Day summary:** a card under the graph shows any day's games, record, win rate, trophy and elo change, and the brawlers and modes you played. Step through days, pick a date, or click a square on the activity map.
+
 **Looks**
 - Accent colour, a new **Daylight** light theme (with "Follow Windows"), text size, compact spacing, and reduced animations, all in Settings > Appearance.
 - Smooth page transitions, animated bars and graphs, and placeholder rows while data loads.

@@ -154,6 +154,49 @@ pub fn game_marks(matches: &[Match]) -> Vec<[i64; 3]> {
     v
 }
 
+#[derive(Serialize, Default, Debug)]
+pub struct DaySummary {
+    pub games: u32,
+    pub wins: u32,
+    pub losses: u32,
+    pub ranked: u32,
+    pub stars: u32,
+    pub best_streak: u32,
+    /// Sum of the API's trophy changes over the day's non-ranked games (None if none reported one).
+    pub trophy_net: Option<i64>,
+    pub trophy_games: u32,
+    /// Sum of elo changes over the day's ranked games that had readings either side.
+    pub elo_net: Option<i64>,
+    pub elo_games: u32,
+    pub first: Option<i64>,
+    pub last: Option<i64>,
+    pub by_brawler: Vec<Row>,
+    pub by_mode: Vec<Row>,
+}
+
+/// Everything played in `[from, to)` (unix seconds; the window picks the local day's edges).
+pub fn day_summary(matches: &[Match], from: i64, to: i64) -> DaySummary {
+    let day: Vec<Match> = matches.iter().filter(|m| m.end >= from && m.end < to).cloned().collect();
+    let s = summarize(&day);
+    let mut d = DaySummary {
+        games: s.total, wins: s.wins, losses: s.losses, ranked: s.ranked, stars: s.star_count,
+        best_streak: s.best_win_streak, elo_net: s.elo_net,
+        by_brawler: s.by_brawler.into_iter().take(4).collect(),
+        by_mode: s.by_mode.into_iter().take(4).collect(),
+        ..Default::default()
+    };
+    for m in day.iter().filter(|m| m.complete || !m.ranked) {
+        if let Some(c) = m.trophy_change {
+            d.trophy_net = Some(d.trophy_net.unwrap_or(0) + c);
+            d.trophy_games += 1;
+        }
+        d.elo_games += m.elo_change.is_some() as u32;
+        d.first = Some(d.first.map_or(m.end, |f| f.min(m.end)));
+        d.last = Some(d.last.map_or(m.end, |l| l.max(m.end)));
+    }
+    d
+}
+
 pub fn series(h: &History) -> Series {
     let mut elo = Vec::new();
     let mut tro = Vec::new();
@@ -255,5 +298,26 @@ mod tests {
         unfinished.ranked = true;
         unfinished.complete = false;
         assert_eq!(game_marks(&[unfinished, a, b]), vec![[300, -1, 0], [500, 1, 1]]);
+    }
+
+    #[test]
+    fn day_summary_only_counts_that_day() {
+        let mut ranked = game("victory", false, None, 1_500);
+        ranked.ranked = true;
+        ranked.elo_change = Some(21);
+        let ms = vec![
+            game("victory", true, Some(8), 2_100),   // next day
+            ranked,                                    // in the day
+            game("defeat", false, Some(-6), 1_200),
+            game("victory", false, Some(9), 1_100),
+            game("victory", false, Some(7), 900),     // previous day
+        ];
+        let d = day_summary(&ms, 1_000, 2_000);
+        assert_eq!((d.games, d.wins, d.losses, d.ranked), (3, 2, 1, 1));
+        assert_eq!((d.trophy_net, d.trophy_games), (Some(3), 2));
+        assert_eq!((d.elo_net, d.elo_games), (Some(21), 1));
+        assert_eq!((d.first, d.last), (Some(1_100), Some(1_500)));
+        assert_eq!(day_summary(&ms, 5_000, 6_000).games, 0);
+        assert_eq!(day_summary(&ms, 5_000, 6_000).trophy_net, None);
     }
 }

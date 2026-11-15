@@ -749,3 +749,21 @@ html[data-density="compact"] h1 { font-size: 22px; margin-bottom: 4px; }
 html[data-density="compact"] .section-head { margin-top: 16px; }
 html[data-density="compact"] .grid { gap: 8px; }
 html[data-density="compact"] .modal { padding: 16px 18px; }
+
+/* ============================ day summary ============================ */
+.day-label { font-weight: 500; font-size: 14px; margin-left: 6px; }
+.day-nav { align-items: center; gap: 6px; }
+.day-nav input[type="date"] { padding: 5px 8px; }
+.btn.small { padding: 4px 10px; min-width: 32px; }
+.hm.pick { cursor: pointer; }
+.hm.pick:hover { outline: 2px solid var(--text); outline-offset: -1px; }
+.hm.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
+.day-sentence { font-size: 15px; line-height: 1.5; margin-bottom: 14px; }
+.day-sentence .pos, .day-tile .v.pos { color: var(--good); }
+.day-sentence .neg, .day-tile .v.neg { color: var(--bad); }
+.day-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.day-tile { background: var(--panel-2); border: var(--bw) var(--bs) var(--border); border-radius: var(--r-md); padding: 10px 12px; }
+.day-tile .k { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.day-tile .v { font-size: 22px; font-weight: 800; margin: 2px 0; }
+.day-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.day-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--panel-2); border: var(--bw) var(--bs) var(--border); border-radius: var(--r-pill); font-size: 13px; }

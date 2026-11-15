@@ -122,6 +122,14 @@ fn get_stats(app: AppHandle, tag: String) -> Value {
     })
 }
 
+/// One local day's results; the window passes the day's start and end (so the clock and time zone are the user's).
+#[tauri::command]
+fn get_day_summary(app: AppHandle, tag: String, from: i64, to: i64) -> Value {
+    let key = api::normalize_tag(&tag);
+    let h = history::load_history(&app, &key);
+    json!(stats::day_summary(&h.matches(&key), from, to))
+}
+
 /// The window reports its UTC offset so quiet hours follow the local clock.
 #[tauri::command]
 fn set_tz_offset(app: AppHandle, minutes: i32) -> Result<(), String> {
@@ -437,7 +445,7 @@ pub fn run() {
             get_presence_preview,
             get_meta,
             recommend,
-            get_tier_list,
+            get_tier_list, get_day_summary,
             get_goals,
             set_tz_offset,
             export_backup,

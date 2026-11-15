@@ -29,6 +29,7 @@ A standalone Windows app (Tauri v2 + Rust) for looking up Brawl Stars players, t
 - **Keyboard shortcuts:** `Ctrl+K` quick search (pages, saved players, or any tag), `1`–`9` to jump to a page, `R` to refresh, `?` for the list.
 - **Notifications:** Settings has separate switches for a favorite starting to play, rank changes and goals reached, plus optional quiet hours (they follow your local clock).
 - **Presence:** a "Just finished" view for 3 minutes after a game and an optional "Taking a break" view after 15 minutes idle (Discord Presence page).
+- **Day summary:** Stats & Graphs has a card for any single day: games, W–L, win rate, trophies and elo gained, and your brawlers and modes. Use the arrows or date box, or click a day on the activity map. Elo counts only ranked games the app had readings for, and says so when some are missing.
 - **Looks:** Settings > Appearance also has an accent colour (presets or any colour), a Daylight light theme with a "Follow Windows" switch, text size (90–130%), compact spacing, and reduced animations. Pages fade in, bars and graphs animate, and loading shows placeholder rows. The elo/trophy graph has a hover crosshair, win/loss dots and a dotted line at your next goal; Recent Games shows the brawler you played.
 - **Tags are always uppercase** in the search, compare and settings boxes.
 

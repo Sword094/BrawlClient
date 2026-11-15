@@ -847,6 +847,8 @@ function sessionRows(list) {
 
 /* ---- overview: tiles, daily heat map, trophy / elo graph ---- */
 let statsData = null, statsMetric = "trophies", statsRange = "all", heatMode = "battles", clearArmed = false;
+const startOfDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+let selDay = startOfDay(new Date()); // the day shown in the Day summary card
 const DAY = 86400;
 // Heat-map colours follow the theme: a theme colour at some opacity.
 const mix = (v, a) => `color-mix(in srgb, var(${v}) ${Math.round(a * 100)}%, transparent)`;
@@ -881,7 +883,8 @@ function heatMap(days, mode) {
         else style = c.w > c.l ? `background:${mix("--good", a)}` : c.w < c.l ? `background:${mix("--bad", a)}` : `background:${mix("--muted", a)}`;
         tip = `${label}: ${c.n} battle${c.n === 1 ? "" : "s"} · ${c.w}W–${c.l}L · ${rate}% win rate`;
       }
-      cells += `<i class="hm" style="${style}" data-tip="${esc(tip)}"></i>`;
+      const dk = dayKey(day);
+      cells += `<i class="hm pick${dk === dayKey(selDay) ? " sel" : ""}" style="${style}" data-day="${dk}" data-tip="${esc(tip + " (click for the day's summary)")}"></i>`;
     }
     const m = new Date(start.getTime() + w * 7 * DAY * 1000).getMonth();
     months += `<span>${m !== lastMonth ? new Date(start.getTime() + w * 7 * DAY * 1000).toLocaleDateString([], { month: "short" }) : ""}</span>`;
@@ -957,6 +960,72 @@ function chartSection() {
       elo ? { color: "var(--elo)", unit: "elo", metric: "elo" } : { color: "var(--accent)", unit: "trophies", metric: "trophies" })}</div>`;
 }
 
+/* ---- day summary ---- */
+
+const signed = (n) => (n > 0 ? "+" : "") + num(n);
+const tone = (n) => (n > 0 ? "pos" : n < 0 ? "neg" : "");
+const sameDay = (a, b) => dayKey(a) === dayKey(b);
+
+function daySection() {
+  const today = startOfDay(new Date()), isToday = sameDay(selDay, today);
+  const label = isToday ? "Today" : sameDay(selDay, new Date(today.getTime() - DAY * 1000 + 3600e3)) ? "Yesterday"
+    : selDay.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: selDay.getFullYear() === today.getFullYear() ? undefined : "numeric" });
+  const iso = `${selDay.getFullYear()}-${String(selDay.getMonth() + 1).padStart(2, "0")}-${String(selDay.getDate()).padStart(2, "0")}`;
+  return `<div class="section-head"><h2>Day summary <span class="muted day-label">${esc(label)}</span></h2>
+    <div class="seg-row day-nav">
+      <button class="btn small" data-day-step="-1" title="Previous day" aria-label="Previous day">‹</button>
+      <input type="date" id="day-pick" value="${iso}" max="${dayKey2iso(today)}" />
+      <button class="btn small" data-day-step="1" title="Next day" aria-label="Next day" ${isToday ? "disabled" : ""}>›</button>
+      <button class="btn small" data-day-step="0" ${isToday ? "disabled" : ""}>Today</button>
+    </div></div>
+    <div class="card" id="day-body"><div class="skel" style="height:120px"></div></div>`;
+}
+const dayKey2iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+let dayToken = 0;
+async function loadDay() {
+  const box = $("day-body");
+  if (!box) return;
+  const token = ++dayToken;
+  const from = Math.floor(startOfDay(selDay).getTime() / 1000);
+  const next = startOfDay(selDay); next.setDate(next.getDate() + 1); // calendar-aware, so daylight saving days come out right
+  let d;
+  try { d = await invoke("get_day_summary", { tag: statsTag, from, to: Math.floor(next.getTime() / 1000) }); }
+  catch (e) { if (token === dayToken) box.innerHTML = `<div class="error">${esc(errText(e))}</div>`; return; }
+  if (token !== dayToken || !$("day-body")) return;
+  $("day-body").innerHTML = dayBody(d);
+}
+
+function dayBody(d) {
+  const isToday = sameDay(selDay, new Date());
+  if (!d.games) {
+    return `<div class="empty small">${isToday ? "No games saved yet today." : "No games saved for this day."}<br><span class="muted">Only games this app has seen are counted. Pick another day or click one on the activity map.</span></div>`;
+  }
+  const dec = d.wins + d.losses, rate = dec ? Math.round((d.wins / dec) * 100) : null;
+  const when = isToday ? "Today" : "That day";
+  const parts = [];
+  if (d.trophy_net != null) parts.push(`<b class="${tone(d.trophy_net)}">${signed(d.trophy_net)}</b> trophies`);
+  if (d.elo_net != null) parts.push(`<b class="${tone(d.elo_net)}">${signed(d.elo_net)}</b> elo`);
+  const net = parts.length ? ` Net <b>${parts.join(" and ")}</b>.` : "";
+  const sentence = `${when} you played <b>${d.games}</b> game${d.games === 1 ? "" : "s"}: won <b>${d.wins}</b>, lost <b>${d.losses}</b>${rate != null ? ` (<b>${rate}%</b> win rate)` : ""}.${net}`;
+  const tile = (k, v, sub, cls = "") => `<div class="day-tile"><div class="k">${k}</div><div class="v ${cls}">${v}</div><div class="s muted small">${sub || "&nbsp;"}</div></div>`;
+  const clock = (t) => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const eloSub = d.ranked ? (d.elo_games < d.ranked ? `from ${d.elo_games} of ${d.ranked} ranked games` : `${d.ranked} ranked game${d.ranked === 1 ? "" : "s"}`) : "no ranked games";
+  const troSub = d.trophy_net != null ? `${d.trophy_games} game${d.trophy_games === 1 ? "" : "s"} counted` : "none reported";
+  const tiles = [
+    tile("Games", d.games, d.first && d.last ? `${clock(d.first)} – ${clock(d.last)}` : ""),
+    tile("Record", `${d.wins}W – ${d.losses}L`, d.best_streak > 1 ? `best streak ${d.best_streak}` : "", d.wins > d.losses ? "pos" : d.wins < d.losses ? "neg" : ""),
+    tile("Win rate", rate == null ? "—" : rate + "%", d.stars ? `${d.stars} star player` : ""),
+    tile("Trophies", d.trophy_net == null ? "—" : signed(d.trophy_net), troSub, d.trophy_net == null ? "" : tone(d.trophy_net)),
+    tile("Elo", d.elo_net == null ? "—" : signed(d.elo_net), eloSub, d.elo_net == null ? "" : tone(d.elo_net)),
+  ].join("");
+  const rows = (list) => list.map((r) => { const n = r.wins + r.losses; const p = n ? Math.round((r.wins / n) * 100) : 0;
+    return `<span class="day-chip">${r.id ? brIcon(r.id, r.name, 20) : ""}<b>${esc(r.name)}</b> ${r.wins}–${r.losses} <span class="muted">${p}%</span></span>`; }).join("");
+  return `<div class="day-sentence">${sentence}</div><div class="day-tiles">${tiles}</div>
+    ${d.by_brawler.length ? `<div class="day-chips"><span class="muted small">Brawlers</span>${rows(d.by_brawler)}</div>` : ""}
+    ${d.by_mode.length ? `<div class="day-chips"><span class="muted small">Modes</span>${rows(d.by_mode)}</div>` : ""}`;
+}
+
 function heatSection() {
   const seg = [["battles", "Battles"], ["winrate", "Win rate"]];
   return `<div class="section-head"><h2>Activity</h2><div class="seg-row"><div class="seg" data-seg="heat">${seg.map(([v, l]) =>
@@ -1026,6 +1095,7 @@ function paintStats() {
     <div class="st-goals">${goalsSection()}</div>
     <div class="st-activity">${heatSection()}</div>
     <div class="st-chart">${chartSection()}</div>
+    <div class="st-day">${daySection()}</div>
     <div class="st-rates">
       <div class="section-head"><h2>Win rates</h2></div>
       <div class="two-col">${rateTable("By brawler", s.by_brawler, true)}${rateTable("By mode", s.by_mode, false)}${rateTable("By map", s.by_map, false)}</div>
@@ -1036,6 +1106,7 @@ function paintStats() {
     </div>
     <div class="st-danger danger-row"><button class="btn ghost danger" id="stats-clear">${clearArmed ? "Click again to delete saved history" : "Clear history"}</button>
       <span class="muted small">Deletes this player's saved games and graphs from this computer only.</span></div>`;
+  loadDay();
 }
 
 $("stats-body").addEventListener("input", (ev) => {
@@ -1044,7 +1115,35 @@ $("stats-body").addEventListener("input", (ev) => {
   else if (ev.target.id === "goal-metric") goalDraft.metric = ev.target.value;
 });
 
+// Picking a day (arrows, date box, or a square on the activity map) refreshes just the day card.
+function pickDay(d) {
+  selDay = startOfDay(d);
+  const el = document.querySelector(".st-day");
+  if (el) { el.innerHTML = daySection(); loadDay(); }
+  document.querySelectorAll(".hm.pick.sel").forEach((c) => c.classList.remove("sel"));
+  document.querySelector(`.hm.pick[data-day="${dayKey(selDay)}"]`)?.classList.add("sel");
+}
+$("stats-body").addEventListener("change", (ev) => {
+  if (ev.target.id !== "day-pick" || !ev.target.value) return;
+  const [y, m, d] = ev.target.value.split("-").map(Number);
+  pickDay(new Date(y, m - 1, d));
+});
+
 $("stats-body").addEventListener("click", async (ev) => {
+  const step = ev.target.closest("[data-day-step]");
+  if (step) {
+    const n = Number(step.dataset.dayStep), d = n === 0 ? new Date() : new Date(selDay);
+    if (n) d.setDate(d.getDate() + n);
+    pickDay(d > new Date() ? new Date() : d);
+    return;
+  }
+  const cell = ev.target.closest(".hm.pick");
+  if (cell) {
+    const [y, m, d] = cell.dataset.day.split("-").map(Number);
+    pickDay(new Date(y, m - 1, d));
+    document.querySelector(".st-day")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    return;
+  }
   const rm = ev.target.closest("[data-goal-x]");
   if (rm) {
     try { await invoke("remove_goal", { tag: statsTag, id: Number(rm.dataset.goalX) }); } catch (e) { toast(errText(e), true); }
