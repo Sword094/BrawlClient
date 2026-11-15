@@ -1,4 +1,5 @@
 mod api;
+mod goals;
 mod history;
 mod icons;
 mod matches;
@@ -119,6 +120,22 @@ fn get_stats(app: AppHandle, tag: String) -> Value {
     })
 }
 
+/// Goals with progress, pace and estimated date for one player.
+#[tauri::command]
+fn get_goals(app: AppHandle, tag: String) -> Value {
+    goals::view_json(&app, &tag)
+}
+
+#[tauri::command]
+fn add_goal(app: AppHandle, tag: String, metric: String, target: i64, deadline: Option<i64>) -> Result<(), String> {
+    goals::add(&app, &tag, &metric, target, deadline)
+}
+
+#[tauri::command]
+fn remove_goal(app: AppHandle, tag: String, id: i64) -> Result<(), String> {
+    goals::remove(&app, &tag, id)
+}
+
 /// Sampled meta summary for the recommender UI. With `refresh` set, re-samples first.
 #[tauri::command]
 async fn get_meta(app: AppHandle, ranked_only: bool, source: String, refresh: bool, limit: Option<u32>, parallel: Option<u32>) -> Result<Value, String> {
@@ -136,6 +153,18 @@ async fn get_meta(app: AppHandle, ranked_only: bool, source: String, refresh: bo
         "maps": meta::maps(&m, ranked_only, &tiers),
         "brawlers": meta::brawlers(&m).into_iter().map(|(id, name)| json!({"id": id, "name": name})).collect::<Vec<_>>(),
     }))
+}
+
+/// Overall brawler ranking (every map, or one mode) from the sampled battle logs.
+#[tauri::command]
+fn get_tier_list(app: AppHandle, ranked_only: bool, source: String, mode: Option<String>) -> Value {
+    let m = meta::load(&app);
+    let tiers = meta::tiers_for(&source);
+    let mode = mode.filter(|x| !x.is_empty());
+    json!({
+        "modes": meta::modes(&m, ranked_only, &tiers),
+        "list": meta::overall(&m, ranked_only, &tiers, mode.as_deref()),
+    })
 }
 
 #[tauri::command]
@@ -368,6 +397,10 @@ pub fn run() {
             get_presence_preview,
             get_meta,
             recommend,
+            get_tier_list,
+            get_goals,
+            add_goal,
+            remove_goal,
             get_favorites,
             add_favorite,
             remove_favorite,

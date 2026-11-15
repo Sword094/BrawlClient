@@ -16,6 +16,8 @@ const FILE: &str = "meta.json";
 /// Smoothing: pretend every brawler starts with this many wins and losses.
 const PRIOR: f64 = 8.0;
 const MIN_GAMES: u32 = 5;
+/// Rounds needed before a brawler shows up in the overall ranking.
+const MIN_OVERALL: u32 = 30;
 
 /// Ranked tiers, lowest to highest. The first word of `rankedRankName` ("MYTHIC III") is the tier.
 const TIERS: [&str; 8] = ["bronze", "silver", "gold", "diamond", "mythic", "legendary", "masters", "pro"];
@@ -257,6 +259,61 @@ pub fn recommend(
     out
 }
 
+/// One brawler's standing across every map (or every map of one mode).
+#[derive(Serialize, Debug)]
+pub struct Overall {
+    pub id: i64,
+    pub brawler: String,
+    pub games: u32,
+    pub win_rate: f64,
+    /// Smoothed win rate; what the list is ordered by.
+    pub score: f64,
+    /// Share of all player-rounds in the pool, as a fraction. Six brawlers play each round, so
+    /// the average brawler sits near 1 / (number of brawlers).
+    pub pick_rate: f64,
+}
+
+/// Modes present in the sample, most-played first (for the mode filter).
+pub fn modes(m: &Meta, ranked_only: bool, tiers: &HashSet<String>) -> Vec<String> {
+    let mut by: HashMap<String, u32> = HashMap::new();
+    for c in pool(m, ranked_only, tiers) {
+        *by.entry(c.mode.clone()).or_default() += c.games;
+    }
+    let mut v: Vec<(String, u32)> = by.into_iter().filter(|(k, _)| !k.is_empty()).collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    v.into_iter().map(|(k, _)| k).collect()
+}
+
+/// Every brawler ranked by smoothed win rate over the whole pool, or just `mode` when given.
+///
+/// Each round is stored once per side, so the pool's average win rate is 50% by construction and
+/// a brawler's figure already reads as "better or worse than the field". Brawlers with fewer than
+/// `MIN_OVERALL` rounds are left out; smoothing handles the rest.
+pub fn overall(m: &Meta, ranked_only: bool, tiers: &HashSet<String>, mode: Option<&str>) -> Vec<Overall> {
+    let mut agg: HashMap<i64, (String, u32, u32)> = HashMap::new();
+    let mut total: u64 = 0;
+    for c in pool(m, ranked_only, tiers).filter(|c| mode.map_or(true, |md| c.mode == md)) {
+        let e = agg.entry(c.id).or_insert_with(|| (c.brawler.clone(), 0, 0));
+        e.1 += c.wins;
+        e.2 += c.games;
+        total += c.games as u64;
+    }
+    let mut out: Vec<Overall> = agg
+        .into_iter()
+        .filter(|(_, (_, _, g))| *g >= MIN_OVERALL)
+        .map(|(id, (brawler, w, g))| Overall {
+            id,
+            brawler,
+            games: g,
+            win_rate: w as f64 / g as f64,
+            score: (w as f64 + PRIOR) / (g as f64 + 2.0 * PRIOR),
+            pick_rate: if total > 0 { g as f64 / total as f64 } else { 0.0 },
+        })
+        .collect();
+    out.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal).then(b.games.cmp(&a.games)).then(a.id.cmp(&b.id)));
+    out
+}
+
 /* --------------------------------- I/O ----------------------------------- */
 
 pub fn load(app: &AppHandle) -> Meta {
@@ -477,5 +534,37 @@ mod tests {
         let t = tiers_for("diamond+");
         assert!(maps(&m, true, &t).is_empty());
         assert_eq!(maps(&m, false, &t), vec![MapInfo { map: "Gem Fort".into(), event_id: 1, mode: "gemGrab".into(), games: 1 }]);
+    }
+
+    fn mk_cell(map: &str, mode: &str, id: i64, name: &str, wins: u32, games: u32) -> Cell {
+        Cell { map: map.into(), mode: mode.into(), ranked: true, tier: "diamond".into(), id, brawler: name.into(), wins, games, ..Default::default() }
+    }
+
+    #[test]
+    fn overall_pools_maps_smooths_and_filters_by_mode() {
+        let m = Meta {
+            cells: vec![
+                // SHELLY: 60/100 over two maps, tiny-sample COLT is dropped, MORTIS is 50/100.
+                mk_cell("Gem Fort", "gemGrab", 1, "SHELLY", 35, 50),
+                mk_cell("Hard Rock Mine", "gemGrab", 1, "SHELLY", 25, 50),
+                mk_cell("Gem Fort", "gemGrab", 2, "COLT", 6, 6),
+                mk_cell("Gem Fort", "gemGrab", 3, "MORTIS", 50, 100),
+                mk_cell("Shooting Star", "bounty", 3, "MORTIS", 10, 40),
+            ],
+            ..Default::default()
+        };
+        let tiers: HashSet<String> = ["diamond".to_string()].into_iter().collect();
+        let all = overall(&m, true, &tiers, None);
+        assert_eq!(all.iter().map(|o| o.brawler.as_str()).collect::<Vec<_>>(), ["SHELLY", "MORTIS"]);
+        assert_eq!(all[0].games, 100);
+        assert!((all[0].win_rate - 0.6).abs() < 1e-9);
+        assert!(all[0].score < all[0].win_rate && all[0].score > 0.5); // pulled toward 50%
+        assert!((all[1].win_rate - 60.0 / 140.0).abs() < 1e-9); // MORTIS pooled over both modes
+        let total: f64 = 100.0 + 6.0 + 140.0;
+        assert!((all[0].pick_rate - 100.0 / total).abs() < 1e-9);
+
+        let bounty = overall(&m, true, &tiers, Some("bounty"));
+        assert_eq!(bounty.len(), 1); // MORTIS only, and 40 rounds clears the minimum
+        assert_eq!(modes(&m, true, &tiers), ["gemGrab", "bounty"]);
     }
 }

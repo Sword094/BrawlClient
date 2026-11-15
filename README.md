@@ -21,6 +21,8 @@ A standalone Windows app (Tauri v2 + Rust) for looking up Brawl Stars players, t
 - **Welcome back popup:** when you open the app, it shows how many trophies and how much ranked elo you gained or lost while it was closed (only if something changed).
 - **Themes:** pick a look in **Settings > Appearance**: Brawl Night (original), Glass, Neo Brutal, Terminal, Paper, Ember, Midnight Pastel, Synthwave, Blueprint, Brawl Arcade or Slate. Your choice is remembered. Themes are plain CSS variables in `src/themes.css`, so adding your own is a copy-and-edit job.
 - **Layouts:** also in **Settings > Appearance**, independent of the theme. Navigation: Sidebar, Icon rail, Top tabs, Floating dock, Grouped sidebar. Page layout: Cards, Compact, List, Columns, Focus. Both live in `src/layouts.css`.
+- **Goals:** on the Stats page, set a target for ranked elo or trophies (with an optional deadline). It shows progress, your pace over the last two weeks, an estimated finish date, and whether you are on track for the deadline. A season reset restarts the pace estimate.
+- **Overall meta:** at the bottom of Ranked Picks, the top 10 brawlers across every map (or one mode) from the same sampled battle logs, with win rate and pick rate.
 - **Tags are always uppercase** in the search, compare and settings boxes.
 
 ## What the Brawl Stars API can and can't do

@@ -630,3 +630,22 @@ i.hm.off { background: transparent; }
 }
 .sidebar, .titlebar { -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur)); }
 .modal, .update-banner { -webkit-backdrop-filter: blur(var(--blur)); backdrop-filter: blur(var(--blur)); }
+
+/* Goals */
+.goals { display: flex; flex-direction: column; gap: 14px; }
+.goal { display: flex; flex-direction: column; gap: 6px; padding-bottom: 14px; border-bottom: var(--bw) var(--bs) var(--border); }
+.goal-top { display: flex; align-items: center; gap: 10px; }
+.goal-top b { font-size: 15px; }
+.goal-state { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: var(--r-pill); background: var(--panel-2); color: var(--muted); margin-left: auto; }
+.goal.reached .goal-state, .goal.on_track .goal-state { color: var(--good); }
+.goal.behind .goal-state, .goal.missed .goal-state { color: var(--bad-soft); }
+.goal-x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 4px; }
+.goal-x:hover { color: var(--bad); }
+.goal-bar { height: 10px; border-radius: var(--r-pill); background: var(--bg-2); overflow: hidden; }
+.goal-bar i { display: block; height: 100%; border-radius: var(--r-pill); background: var(--accent); }
+.goal.reached .goal-bar i, .goal.on_track .goal-bar i { background: var(--good); }
+.goal.behind .goal-bar i, .goal.missed .goal-bar i { background: var(--bad); }
+.goal-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+.goal-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.goal-form input[type="number"], .goal-form input[type="date"] { background: var(--bg-2); color: var(--text); border: var(--bw) var(--bs) var(--border); border-radius: var(--r-md); padding: 8px 10px; font: inherit; }
+.goal-form input[type="number"] { width: 110px; }

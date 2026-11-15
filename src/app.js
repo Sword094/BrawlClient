@@ -844,10 +844,66 @@ function heatSection() {
     <div class="card">${heatMap(statsData.days || [], heatMode)}</div>`;
 }
 
+/* ------------------------------- goals ------------------------------- */
+
+let statsGoals = [];
+let goalDraft = { metric: "elo", target: "", date: "" };
+const fmtDay = (sec) => new Date(sec * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const perDay = (v) => `${v > 0 ? "+" : ""}${Math.round(v).toLocaleString()}/day`;
+
+function goalNote(g) {
+  const p = g.progress, unit = g.metric === "elo" ? "elo" : "trophies";
+  switch (p.status) {
+    case "reached": return `🎉 Reached${g.reached_at ? ` on ${fmtDay(g.reached_at)}` : ""}.`;
+    case "missed": return `Deadline passed with ${num(p.remaining)} ${unit} to go.`;
+    case "no_data": return "Not enough recent readings to estimate a pace yet. Keep playing with the app open.";
+    case "stalled": return `No gain over the last two weeks (${perDay(p.per_day)}).`;
+    default: {
+      const pace = `At ${perDay(p.per_day)}`;
+      if (g.deadline) {
+        return p.status === "on_track"
+          ? `${pace}, you'll make it by ${fmtDay(g.deadline)} (needs ${perDay(p.need_per_day)}).`
+          : `${pace} is short of the ${perDay(p.need_per_day)} needed by ${fmtDay(g.deadline)}.`;
+      }
+      return `${pace}, you'd get there around ${fmtDay(p.eta)}.`;
+    }
+  }
+}
+
+function goalCard(g) {
+  const p = g.progress, unit = g.metric === "elo" ? "elo" : "trophies";
+  const pct = Math.round(p.pct * 100);
+  return `<div class="goal ${esc(p.status)}">
+    <div class="goal-top"><b>Reach ${num(g.target)} ${unit}</b>
+      <span class="goal-state">${{ reached: "Reached", on_track: "On track", behind: "Behind", missed: "Missed", stalled: "Stalled", no_data: "Waiting for data" }[p.status]}</span>
+      <button class="goal-x" data-goal-x="${g.id}" title="Remove goal" aria-label="Remove goal">✕</button></div>
+    <div class="goal-bar"><i style="width:${pct}%"></i></div>
+    <div class="goal-meta"><span>${p.current != null ? `${num(p.current)} now` : "—"} · started at ${num(g.start)}</span><span>${pct}%${p.remaining ? ` · ${num(p.remaining)} to go` : ""}</span></div>
+    <div class="muted small">${esc(goalNote(g))}</div></div>`;
+}
+
+function goalsSection() {
+  const cards = statsGoals.length ? statsGoals.map(goalCard).join("") : `<div class="muted small">No goals yet. Set a target below and this tracks your progress, your pace and when you'd get there.</div>`;
+  return `<div class="section-head"><h2>Goals</h2></div>
+    <div class="card goals">${cards}
+      <div class="goal-form">
+        <select id="goal-metric"><option value="elo" ${goalDraft.metric === "elo" ? "selected" : ""}>Ranked elo</option><option value="trophies" ${goalDraft.metric === "trophies" ? "selected" : ""}>Trophies</option></select>
+        <input id="goal-target" type="number" min="1" inputmode="numeric" placeholder="Target" value="${esc(goalDraft.target)}" />
+        <input id="goal-date" type="date" title="Optional deadline" value="${esc(goalDraft.date)}" />
+        <button class="btn primary" id="goal-add">Add goal</button>
+        <span class="inline-msg" id="goal-msg"></span>
+      </div></div>`;
+}
+
+async function loadGoals() {
+  try { statsGoals = (await invoke("get_goals", { tag: statsTag })).goals; } catch (e) { statsGoals = []; }
+}
+
 function paintStats() {
   const r = statsData, s = r.summary;
   $("stats-body").innerHTML = `
     <div class="st-tiles">${statsTiles(s)}</div>
+    <div class="st-goals">${goalsSection()}</div>
     <div class="st-activity">${heatSection()}</div>
     <div class="st-chart">${chartSection()}</div>
     <div class="st-rates">
@@ -862,7 +918,32 @@ function paintStats() {
       <span class="muted small">Deletes this player's saved games and graphs from this computer only.</span></div>`;
 }
 
+$("stats-body").addEventListener("input", (ev) => {
+  if (ev.target.id === "goal-target") goalDraft.target = ev.target.value;
+  else if (ev.target.id === "goal-date") goalDraft.date = ev.target.value;
+  else if (ev.target.id === "goal-metric") goalDraft.metric = ev.target.value;
+});
+
 $("stats-body").addEventListener("click", async (ev) => {
+  const rm = ev.target.closest("[data-goal-x]");
+  if (rm) {
+    try { await invoke("remove_goal", { tag: statsTag, id: Number(rm.dataset.goalX) }); } catch (e) { toast(errText(e), true); }
+    await loadGoals(); paintStats();
+    return;
+  }
+  if (ev.target.id === "goal-add") {
+    const target = Math.round(Number(goalDraft.target));
+    const msg = $("goal-msg");
+    if (!target || target <= 0) { msg.textContent = "Enter a target number."; return; }
+    // A date picker gives "YYYY-MM-DD"; the goal ends at the end of that local day.
+    const deadline = goalDraft.date ? Math.floor(new Date(`${goalDraft.date}T23:59:59`).getTime() / 1000) : null;
+    try {
+      await invoke("add_goal", { tag: statsTag, metric: goalDraft.metric, target, deadline });
+      goalDraft.target = ""; goalDraft.date = "";
+      await loadGoals(); paintStats();
+    } catch (e) { msg.textContent = errText(e); }
+    return;
+  }
   const seg = ev.target.closest(".seg button");
   if (seg && statsData) {
     const key = seg.parentElement.dataset.seg, v = seg.dataset.v;
@@ -923,6 +1004,8 @@ async function renderStatsPage() {
   }
   statsData = r;
   clearArmed = false;
+  await loadGoals();
+  if (token !== statsToken) return;
   paintStats();
 }
 
@@ -973,6 +1056,7 @@ function renderBans() {
 }
 
 async function runRecommend() {
+  runTierList();
   const token = ++recToken;
   const box = $("rec-list"), err = $("rec-error");
   err.classList.add("hidden");
@@ -996,6 +1080,28 @@ async function runRecommend() {
     err.classList.remove("hidden");
   }
 }
+
+let tlMode = "";
+async function runTierList() {
+  const box = $("tl-list");
+  try {
+    const r = await invoke("get_tier_list", { rankedOnly: $("rec-ranked").checked, source: recSource, mode: tlMode || null });
+    if (tlMode && !r.modes.includes(tlMode)) { tlMode = ""; return runTierList(); }
+    $("tl-mode").innerHTML = `<option value="">All modes</option>` +
+      r.modes.map((m) => `<option value="${esc(m)}" ${m === tlMode ? "selected" : ""}>${esc(modeName(m))}</option>`).join("");
+    if (!r.list.length) { box.innerHTML = `<div class="empty">Not enough data yet. Refresh the sample above.</div>`; return; }
+    const avg = r.list.reduce((a, x) => a + x.pick_rate, 0) / r.list.length;
+    box.innerHTML = `<div class="table-wrap"><table><thead><tr><th>#</th><th>Brawler</th><th>Win rate</th><th>Pick rate</th><th>Rounds</th></tr></thead><tbody>${
+      r.list.slice(0, 10).map((x, i) => `<tr class="${i === 0 ? "top-pick" : ""}"><td class="num">${i + 1}</td>
+        <td class="name">${brIcon(x.id, x.brawler, 26)}${esc(x.brawler)}</td>
+        <td class="num"><span class="bar"><i style="width:${Math.round(x.win_rate * 100)}%"></i></span> ${(x.win_rate * 100).toFixed(1)}%</td>
+        <td class="num">${(x.pick_rate * 100).toFixed(1)}%${x.pick_rate > avg * 1.5 ? " 🔥" : ""}</td>
+        <td class="num">${num(x.games)}</td></tr>`).join("")
+    }</tbody></table></div>
+    <p class="muted small">Top 10 of ${r.list.length} brawlers across every map${tlMode ? ` in ${esc(modeName(tlMode))}` : ""}, by smoothed win rate. Pick rate is each brawler's share of all rounds. It uses the same sample and filters as above, and brawlers with under 30 rounds are left out.</p>`;
+  } catch (e) { box.innerHTML = ""; }
+}
+$("tl-mode").onchange = (ev) => { tlMode = ev.target.value; runTierList(); };
 
 function renderTop5(recs) {
   const top = recs.slice(0, 5);
