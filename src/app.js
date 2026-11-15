@@ -71,12 +71,71 @@ function modeName(m) {
 }
 
 let toastTimer = null;
-function toast(msg, isErr = false) {
+function toast(msg, isErr = false, action = null) {
   const el = $("toast");
   el.textContent = msg;
   el.className = "toast" + (isErr ? " err" : "");
+  if (action) {
+    const b = document.createElement("button");
+    b.className = "toast-act"; b.textContent = action.label;
+    b.onclick = () => { action.run(); el.classList.add("hidden"); };
+    el.append(" ", b);
+  }
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.add("hidden"), isErr ? 5000 : 2200);
+  toastTimer = setTimeout(() => el.classList.add("hidden"), isErr ? 5000 : action ? 9000 : 2200);
+}
+
+/* ============================ loading skeletons ============================ */
+
+const skel = {
+  cards: (n = 4) => Array.from({ length: n }, () => `<div class="skel card"></div>`).join(""),
+  rows: (n = 6) => Array.from({ length: n }, () => `<div class="skel skel-row"></div>`).join(""),
+  stats: () => `<div class="skel-tiles">${Array.from({ length: 8 }, () => `<div class="skel tile"></div>`).join("")}</div><div class="skel wide"></div>`,
+};
+// Only when there is nothing on screen yet, so a refresh doesn't flash.
+const showSkeleton = (el, html) => { if (!el.innerHTML.trim() || el.querySelector(".skel")) el.innerHTML = html; };
+
+/* ============================ exports & backup ============================ */
+
+const baseName = (p) => String(p).split(/[\\/]/).pop();
+// A file was written to Downloads: say so, with a shortcut to its folder.
+function savedToast(path) {
+  toast(`Saved ${baseName(path)} to Downloads.`, false, {
+    label: "Show in folder",
+    run: () => invoke("reveal_file", { path }).catch((e) => toast(errText(e), true)),
+  });
+}
+
+// The graph on screen, drawn to a PNG. The SVG relies on page CSS, so the computed colours and
+// text styles are copied onto a clone first.
+async function chartPng() {
+  const live = document.querySelector("#stats-body svg.chart");
+  if (!live) throw new Error("There's no graph to save yet.");
+  const clone = live.cloneNode(true);
+  const lv = [live, ...live.querySelectorAll("*")], cv = [clone, ...clone.querySelectorAll("*")];
+  const props = ["fill", "stroke", "stroke-width", "stroke-linejoin", "stroke-dasharray", "font-size", "font-family", "font-weight", "opacity"];
+  lv.forEach((el, i) => { if (cv[i].closest(".xh")) return; const cs = getComputedStyle(el); cv[i].setAttribute("style", props.map((p) => `${p}:${cs.getPropertyValue(p)}`).join(";")); });
+  clone.querySelector(".xh")?.remove(); // the hover crosshair is not part of the picture
+  const [, , vw, vh] = live.getAttribute("viewBox").split(" ").map(Number);
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("width", vw); clone.setAttribute("height", vh);
+  const css = getComputedStyle(document.documentElement), col = (n, d) => css.getPropertyValue(n).trim() || d;
+  const img = new Image();
+  await new Promise((ok, no) => { img.onload = ok; img.onerror = () => no(new Error("Couldn't draw the graph.")); img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(clone)); });
+  const pad = 24, head = 68, scale = 2, w = vw + pad * 2, h = vh + head + pad + 18;
+  const cv2 = document.createElement("canvas"); cv2.width = w * scale; cv2.height = h * scale;
+  const g = cv2.getContext("2d"); g.scale(scale, scale);
+  g.fillStyle = col("--panel", "#1c1833"); g.fillRect(0, 0, w, h);
+  g.fillStyle = col("--text", "#f1eefc"); g.font = "700 18px system-ui, sans-serif";
+  const elo = statsMetric === "elo", who = $("stats-select").selectedOptions[0]?.textContent || "";
+  g.fillText(`${elo ? "Ranked elo" : "Trophies"}${who ? " · " + who : ""}`, pad, pad + 14);
+  g.fillStyle = col("--muted", "#9a93bd"); g.font = "13px system-ui, sans-serif";
+  const gain = document.querySelector("#stats-body .gain");
+  g.fillText(gain ? gain.textContent : "", pad, pad + 36);
+  g.drawImage(img, pad, head);
+  g.fillText("Brawl Stars Hub", pad, h - 12);
+  const blob = await new Promise((ok) => cv2.toBlob(ok, "image/png"));
+  return Array.from(new Uint8Array(await blob.arrayBuffer()));
 }
 
 /* ============================ brawler icons ============================ */
@@ -91,7 +150,7 @@ const ICON_FALLBACKS = (id) => [
 function brIcon(id, name, size = 22) {
   if (!id) return "";
   const list = [icons[String(id)], ...ICON_FALLBACKS(id)].filter(Boolean);
-  return `<img class="bricon" src="${esc(list[0])}" data-alts="${esc(JSON.stringify(list.slice(1)))}" width="${size}" height="${size}" alt="" loading="lazy" />`;
+  return `<img class="bricon" src="${esc(list[0])}" data-alts="${esc(JSON.stringify(list.slice(1)))}" data-name="${esc(name || "")}" width="${size}" height="${size}" alt="" loading="lazy" />`;
 }
 document.addEventListener("error", (ev) => {
   const img = ev.target;
@@ -100,7 +159,14 @@ document.addEventListener("error", (ev) => {
   try { alts = JSON.parse(img.dataset.alts || "[]"); } catch (e) { /* ignore */ }
   const next = alts.shift();
   if (next) { img.dataset.alts = JSON.stringify(alts); img.src = next; }
-  else { img.style.display = "none"; }
+  else if (img.dataset.name && !img.classList.contains("mapimg")) {
+    // Out of picture sources: show the brawler's initial instead of an empty gap.
+    const b = document.createElement("span");
+    b.className = "bricon fallback"; b.textContent = img.dataset.name.trim().charAt(0).toUpperCase();
+    b.style.width = b.style.height = (img.getAttribute("width") || 22) + "px";
+    b.title = img.dataset.name;
+    img.replaceWith(b);
+  } else { img.style.display = "none"; }
 }, true);
 
 // Map images are keyed by the battle's event id on Brawlify's image server (best effort).
@@ -491,7 +557,7 @@ let recentToken = 0;
 async function loadRecent(tag) {
   const token = ++recentToken;
   $("recent-error").classList.add("hidden");
-  $("recent-loading").classList.remove("hidden");
+  showSkeleton($("recent-list"), skel.cards(4));
   try {
     const r = await invoke("get_matches", { tag });
     if (token !== recentToken) return;
@@ -502,7 +568,7 @@ async function loadRecent(tag) {
     $("recent-error").textContent = errText(e);
     $("recent-error").classList.remove("hidden");
   } finally {
-    if (token === recentToken) $("recent-loading").classList.add("hidden");
+    if (token === recentToken) $("recent-loading").classList.add("hidden"); // (spinner no longer shown; skeleton rows are)
   }
 }
 
@@ -596,9 +662,11 @@ function matchCard(m, tracked) {
       </div>`).join("")}</div>`
     : "";
 
+  const me = mine >= 0 ? (teams[mine] || []).find((p) => p.me) : null;
+  const brawler = me && me.brawler ? `<span class="b-br" title="${esc(me.brawler)}">${brIcon(me.id, me.brawler, 26)}</span>` : "";
   return `<div class="battle ${cls}" ${m.ranked ? 'data-ranked="1"' : ""}>
     <div class="b-head" data-toggle title="Click for full match details">
-      <span class="b-res">${label}</span>${score}${rounds}
+      ${brawler}<span class="b-res">${label}</span>${score}${rounds}
       ${deltaBadge(m, tracked)}
       <span class="b-mode">${m.ranked ? '<span class="pill gold">Ranked</span> ' : ""}${esc(modeName(m.mode))} · ${esc(m.map || "?")}</span>
       <span class="b-when">${esc(ago(when))} · ${esc(new Date(when).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))}</span>
@@ -668,12 +736,28 @@ async function playerOptions(selectedTag) {
 }
 
 // Step chart: a rating holds its value until the next reading. A value of 0 breaks the line.
-function lineChart(points, { color, unit }) {
+let chartGeom = null; // geometry of the chart on screen, for the hover crosshair
+
+// Reading in force at time t (the graph is a step line).
+function valueAt(pts, t) {
+  let v = pts[0][1];
+  for (const p of pts) { if (p[0] > t) break; v = p[1]; }
+  return v;
+}
+
+function lineChart(points, { color, unit, metric }) {
   const pts = points.filter((p) => p[1] > 0);
-  if (pts.length < 2) return `<div class="empty small">Not enough readings yet. Keep the app running while you play.</div>`;
+  if (pts.length < 2) { chartGeom = null; return `<div class="empty small">Not enough readings yet. Keep the app running while you play.</div>`; }
   const W = 760, H = 220, L = 54, R = 12, T = 12, B = 26;
   const t0 = pts[0][0], t1 = pts[pts.length - 1][0];
   let lo = Math.min(...pts.map((p) => p[1])), hi = Math.max(...pts.map((p) => p[1]));
+  const last = pts[pts.length - 1];
+
+  // The nearest unfinished goal for this metric draws a dotted target line, if it is within reach.
+  const goal = (statsGoals || []).filter((g) => g.metric === metric && g.progress.status !== "reached" && g.target > last[1]).sort((a, b) => a.target - b.target)[0];
+  const span0 = Math.max(1, hi - lo);
+  const showGoal = goal && goal.target - hi <= span0 * 3;
+  if (showGoal) hi = Math.max(hi, goal.target);
   if (hi === lo) { hi += 1; lo -= 1; }
   const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
   const x = (t) => L + ((t - t0) / Math.max(1, t1 - t0)) * (W - L - R);
@@ -690,16 +774,52 @@ function lineChart(points, { color, unit }) {
   const fmt = (t) => statsRange === "today"
     ? new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
     : new Date(t * 1000).toLocaleDateString([], { month: "short", day: "numeric" });
-  const last = pts[pts.length - 1];
+
+  // Win/loss dots where games finished (elo graph: ranked games; trophy graph: the others).
+  const marks = ((statsData && statsData.marks) || []).filter((g) => g[1] !== 0 && g[0] >= t0 && g[0] <= t1 && (metric === "elo" ? g[2] === 1 : g[2] === 0));
+  const dots = marks.length && marks.length <= 150
+    ? marks.map((g) => `<circle class="mk ${g[1] > 0 ? "w" : "l"}" cx="${x(g[0]).toFixed(1)}" cy="${y(valueAt(pts, g[0])).toFixed(1)}" r="3"/>`).join("") : "";
+  const goalSvg = showGoal
+    ? `<line class="goal-line" x1="${L}" x2="${W - R}" y1="${y(goal.target)}" y2="${y(goal.target)}"/><text class="goal-tag" x="${W - R}" y="${y(goal.target) - 5}" text-anchor="end">Goal ${goal.target.toLocaleString()}</text>` : "";
+
+  chartGeom = { W, L, R, t0, t1, pts, x, y, unit, fmt: (t) => new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) };
   return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="${esc(unit)} over time">
-    ${grid}
+    ${grid}${goalSvg}
     <text x="${L}" y="${H - 6}" class="gt">${esc(fmt(t0))}</text>
     <text x="${W - R}" y="${H - 6}" text-anchor="end" class="gt">${esc(fmt(t1))}</text>
-    <path d="${d}" fill="none" style="stroke:${color}" stroke-width="2.2" stroke-linejoin="round"/>
+    <path class="line" pathLength="1" d="${d}" fill="none" style="stroke:${color}" stroke-width="2.2" stroke-linejoin="round"/>
+    ${dots}
     <circle cx="${x(last[0])}" cy="${y(last[1])}" r="4" style="fill:${color}"/>
+    <g class="xh" style="display:none"><line y1="${T}" y2="${H - B}"/><circle r="5" style="fill:${color}"/></g>
   </svg>
-  <div class="chart-foot muted small">Latest ${num(last[1])} ${esc(unit)} · low ${num(Math.min(...pts.map((p) => p[1])))} · high ${num(Math.max(...pts.map((p) => p[1])))}</div>`;
+  <div class="chart-foot muted small">Latest ${num(last[1])} ${esc(unit)} · low ${num(Math.min(...pts.map((p) => p[1])))} · high ${num(Math.max(...pts.map((p) => p[1])))}${dots ? `<span class="chart-key"><span><i style="background:var(--good)"></i>win</span><span><i style="background:var(--bad)"></i>loss</span></span>` : ""}</div>`;
 }
+
+// Hover crosshair: snaps to the nearest reading and shows its time and value.
+(() => {
+  const tip = document.createElement("div");
+  tip.className = "hm-tip"; tip.hidden = true; document.body.appendChild(tip);
+  const body = $("stats-body");
+  const hide = (svg) => { tip.hidden = true; const g = svg && svg.querySelector(".xh"); if (g) g.style.display = "none"; };
+  body.addEventListener("mousemove", (ev) => {
+    const svg = ev.target.closest && ev.target.closest("svg.chart");
+    if (!svg || !chartGeom) return;
+    const r = svg.getBoundingClientRect(), vx = ((ev.clientX - r.left) / r.width) * chartGeom.W;
+    if (vx < chartGeom.L - 4 || vx > chartGeom.W - chartGeom.R + 4) { hide(svg); return; }
+    const t = chartGeom.t0 + ((vx - chartGeom.L) / (chartGeom.W - chartGeom.L - chartGeom.R)) * (chartGeom.t1 - chartGeom.t0);
+    const p = chartGeom.pts.reduce((b, q) => (Math.abs(q[0] - t) < Math.abs(b[0] - t) ? q : b));
+    const cx = chartGeom.x(p[0]), cy = chartGeom.y(p[1]);
+    const g = svg.querySelector(".xh");
+    g.style.display = ""; g.querySelector("line").setAttribute("x1", cx); g.querySelector("line").setAttribute("x2", cx);
+    g.querySelector("circle").setAttribute("cx", cx); g.querySelector("circle").setAttribute("cy", cy);
+    tip.textContent = `${num(p[1])} ${chartGeom.unit} · ${chartGeom.fmt(p[0])}`;
+    tip.hidden = false;
+    tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 8, Math.max(8, ev.clientX - tip.offsetWidth / 2)) + "px";
+    tip.style.top = r.top + (cy / 220) * r.height - tip.offsetHeight - 14 + "px";
+  });
+  body.addEventListener("mouseleave", () => hide(body.querySelector("svg.chart")));
+  body.addEventListener("mouseover", (ev) => { if (!ev.target.closest || !ev.target.closest("svg.chart")) hide(body.querySelector("svg.chart")); });
+})();
 
 function rateTable(title, rows, withIcons) {
   if (!rows.length) return "";
@@ -834,7 +954,7 @@ function chartSection() {
       ${seg("", "metric", statsMetric, [["trophies", "Trophies"], ["elo", "Ranked elo"]])}
       ${seg("", "range", statsRange, [["today", "Today"], ["7", "7 days"], ["30", "30 days"], ["all", "All time"]])}</div></div>
     <div class="card">${gainLine(ranged, elo ? "elo" : "trophies")}${lineChart(ranged,
-      elo ? { color: "var(--elo)", unit: "elo" } : { color: "var(--accent)", unit: "trophies" })}</div>`;
+      elo ? { color: "var(--elo)", unit: "elo", metric: "elo" } : { color: "var(--accent)", unit: "trophies", metric: "trophies" })}</div>`;
 }
 
 function heatSection() {
@@ -993,6 +1113,7 @@ async function renderStatsPage() {
   }
   const token = ++statsToken;
   let r;
+  showSkeleton($("stats-body"), skel.stats());
   try { r = await invoke("get_stats", { tag: statsTag }); }
   catch (e) { $("stats-body").innerHTML = `<div class="error">${esc(errText(e))}</div>`; return; }
   if (token !== statsToken) return;
@@ -1008,6 +1129,32 @@ async function renderStatsPage() {
   if (token !== statsToken) return;
   paintStats();
 }
+
+$("stats-csv").onclick = async () => {
+  try { savedToast(await invoke("export_matches_csv", { tag: statsTag })); } catch (e) { toast(errText(e), true); }
+};
+$("stats-png").onclick = async () => {
+  try {
+    const bytes = await chartPng();
+    savedToast(await invoke("save_png", { name: `brawl-${statsMetric}-${statsRange}-${new Date().toISOString().slice(0, 10)}`, bytes }));
+  } catch (e) { toast(errText(e), true); }
+};
+
+$("data-backup").onclick = async () => {
+  try { savedToast(await invoke("export_backup")); } catch (e) { toast(errText(e), true); }
+};
+$("data-restore").onclick = () => $("data-file").click();
+$("data-file").onchange = async (ev) => {
+  const f = ev.target.files[0]; ev.target.value = "";
+  if (!f) return;
+  if (f.size > 200 * 1024 * 1024) { toast("That file is too large to be a backup.", true); return; }
+  try {
+    const r = await invoke("restore_backup", { text: await f.text() });
+    toast(`Restored ${r.files} file${r.files === 1 ? "" : "s"}${r.players ? ` (${r.players} player${r.players === 1 ? "" : "s"})` : ""}.`);
+    statsTag = ""; goalDraft.target = "";
+    await loadSettings();
+  } catch (e) { toast(errText(e), true); }
+};
 
 $("stats-select").onchange = (ev) => { statsTag = ev.target.value; renderStatsPage(); };
 $("stats-refresh").onclick = () => renderStatsPage();
@@ -1305,7 +1452,27 @@ async function loadSettings() {
   $("set-tray").checked = lastSettings.close_to_tray !== false;
   $("set-login").checked = !!lastSettings.launch_at_login;
   $("set-notify").checked = lastSettings.notifications !== false;
+  $("set-n-session").checked = lastSettings.notify_session !== false;
+  $("set-n-rank").checked = lastSettings.notify_rank !== false;
+  $("set-n-goal").checked = lastSettings.notify_goal !== false;
+  $("set-quiet").checked = !!lastSettings.quiet_enabled;
+  $("set-quiet-start").value = lastSettings.quiet_start || "23:00";
+  $("set-quiet-end").value = lastSettings.quiet_end || "08:00";
+  syncNotifyUI();
   $("set-autopresence").checked = !!lastSettings.auto_start_presence;
+}
+
+// Sub-options follow the master switch; the time boxes follow "Quiet hours".
+function syncNotifyUI() {
+  $("notify-sub").classList.toggle("off", !$("set-notify").checked);
+  $("quiet-times").classList.toggle("off", !$("set-notify").checked || !$("set-quiet").checked);
+}
+$("set-notify").onchange = syncNotifyUI;
+$("set-quiet").onchange = syncNotifyUI;
+
+// Quiet hours follow the local clock; the app tells the background tracker the current offset.
+function reportTimezone() {
+  invoke("set_tz_offset", { minutes: -new Date().getTimezoneOffset() }).catch(() => {});
 }
 
 async function saveSettings() {
@@ -1318,6 +1485,12 @@ async function saveSettings() {
     close_to_tray: $("set-tray").checked,
     launch_at_login: $("set-login").checked,
     notifications: $("set-notify").checked,
+    notify_session: $("set-n-session").checked,
+    notify_rank: $("set-n-rank").checked,
+    notify_goal: $("set-n-goal").checked,
+    quiet_enabled: $("set-quiet").checked,
+    quiet_start: $("set-quiet-start").value || "23:00",
+    quiet_end: $("set-quiet-end").value || "08:00",
     auto_start_presence: $("set-autopresence").checked,
   };
   await invoke("save_settings", { settings: lastSettings });
@@ -1379,11 +1552,12 @@ const PC_TOGGLES = {
   "pc-latest": "presence_latest", "pc-victories": "presence_victories", "pc-trophies": "presence_trophies",
   "pc-record": "presence_record", "pc-ranked": "presence_ranked", "pc-club": "presence_club",
   "pc-streak": "presence_streak", "pc-session": "presence_session",
+  "pc-finished": "presence_finished", "pc-idle": "presence_idle",
   "pc-custom": "presence_custom", "pc-images": "presence_images", "pc-button": "presence_button",
 };
 const VIEW_TITLES = {
   latest: "Latest match", session: "Current session", trophies: "Trophies", ranked: "Ranked",
-  streak: "Win streak", victories: "Victories", record: "Recent record", club: "Club", custom: "Custom text",
+  finished: "Just finished", idle: "Taking a break", streak: "Win streak", victories: "Victories", record: "Recent record", club: "Club", custom: "Custom text",
 };
 let pcData = null;      // { views, placeholders }
 let pcCurrent = null;   // view id Discord is showing right now
@@ -1456,7 +1630,7 @@ async function pcReload() {
 }
 
 function renderPresencePage() {
-  for (const [id, key] of Object.entries(PC_TOGGLES)) $(id).checked = key === "presence_images" || key === "presence_button" || key === "presence_custom" || key === "presence_club"
+  for (const [id, key] of Object.entries(PC_TOGGLES)) $(id).checked = key === "presence_images" || key === "presence_button" || key === "presence_custom" || key === "presence_club" || key === "presence_idle"
     ? !!lastSettings[key] : lastSettings[key] !== false;
   $("pc-line1").value = lastSettings.presence_line1 || "";
   $("pc-line2").value = lastSettings.presence_line2 || "";
@@ -1513,7 +1687,9 @@ const THEMES = [
   ["blueprint","Blueprint",   "Technical drawing: blue grid paper, dashed lines.",       ["#0b2a4a", "#134270", "#ffd34d"]],
   ["arcade",   "Brawl Arcade","Bold game-menu style: bright blue, chunky outlines.",     ["#2a6bff", "#101c4d", "#ffd21f"]],
   ["slate",    "Slate",       "Minimal and flat, like a developer tool.",                ["#0b0c0e", "#1b1e24", "#5b8cff"]],
+  ["daylight", "Daylight",    "Clean and bright: white cards on soft grey, violet accent.", ["#f2f4f9", "#ffffff", "#5b4bdb"]],
 ];
+const LIGHT_THEMES = ["brutal", "paper", "daylight"];
 
 // Navigation and page layouts: [id, name, description]. Applied as data-nav / data-content on <html>.
 const NAV_LAYOUTS = [
@@ -1578,13 +1754,25 @@ function currentTheme() {
   try { return localStorage.getItem("bsh-theme") || "default"; } catch { return "default"; }
 }
 
+// The theme actually shown: with "Follow Windows" on, a light system swaps a dark choice for Daylight.
+function effectiveTheme(id) {
+  const light = window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches;
+  return lsGet("bsh-follow", "") === "1" && light && !LIGHT_THEMES.includes(id) ? "daylight" : id;
+}
+
 function applyTheme(id) {
   if (!THEMES.some((t) => t[0] === id)) id = "default";
-  if (id === "default") delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = id;
   try { localStorage.setItem("bsh-theme", id); } catch {}
+  paintTheme();
   renderThemePicker();
 }
+
+function paintTheme() {
+  const eff = effectiveTheme(currentTheme());
+  if (eff === "default") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = eff;
+}
+if (window.matchMedia) matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", paintTheme);
 
 function renderThemePicker() {
   const cur = currentTheme();
@@ -1599,6 +1787,66 @@ $("theme-grid").onclick = (ev) => {
   if (t) applyTheme(t.dataset.themeId);
 };
 renderThemePicker();
+
+/* ---- accent colour, brightness, size, spacing, animation ---- */
+
+const ACCENTS = [["#ffce00", "Gold"], ["#4f8cff", "Blue"], ["#3ddc84", "Green"], ["#ff4fa3", "Pink"], ["#ff8a3d", "Orange"], ["#9b6dff", "Purple"], ["#ff5d6c", "Red"], ["#22d3ee", "Cyan"]];
+const SCALES = [["90", "Small"], ["100", "Normal"], ["115", "Large"], ["130", "Larger"]];
+
+// Black or white text, whichever reads better on this colour.
+function onColour(hex) {
+  const n = parseInt(hex.slice(1), 16), c = [n >> 16, (n >> 8) & 255, n & 255].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] > 0.4 ? "#111111" : "#ffffff";
+}
+const lsSet = (k, v) => { try { v === "" || v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { /* private mode */ } };
+
+function applyAccent(hex, redraw = true) {
+  const root = document.documentElement;
+  if (hex && /^#[0-9a-f]{6}$/i.test(hex)) {
+    root.style.setProperty("--accent", hex); root.style.setProperty("--on-accent", onColour(hex));
+    lsSet("bsh-accent", hex); lsSet("bsh-on-accent", onColour(hex));
+  } else {
+    root.style.removeProperty("--accent"); root.style.removeProperty("--on-accent");
+    lsSet("bsh-accent", ""); lsSet("bsh-on-accent", "");
+  }
+  if (redraw) renderLookExtra();
+}
+function applyScale(v) { document.documentElement.style.zoom = v === "100" ? "" : Number(v) / 100; lsSet("bsh-scale", v === "100" ? "" : v); renderLookExtra(); }
+function applyDensity(v) { v === "compact" ? (document.documentElement.dataset.density = "compact") : delete document.documentElement.dataset.density; lsSet("bsh-density", v === "compact" ? "compact" : ""); renderLookExtra(); }
+function applyMotion(v) { v === "reduced" ? (document.documentElement.dataset.motion = "reduced") : delete document.documentElement.dataset.motion; lsSet("bsh-motion", v === "reduced" ? "reduced" : ""); renderLookExtra(); }
+
+function renderLookExtra() {
+  const acc = lsGet("bsh-accent", ""), scale = lsGet("bsh-scale", "100"), dens = lsGet("bsh-density", "normal") === "compact" ? "compact" : "normal";
+  const mot = lsGet("bsh-motion", "") === "reduced" ? "reduced" : "full", follow = lsGet("bsh-follow", "") === "1";
+  const seg = (key, cur, items) => `<div class="seg" data-look="${key}">${items.map(([v, l]) => `<button class="${cur === v ? "on" : ""}" data-v="${v}">${l}</button>`).join("")}</div>`;
+  $("look-extra").innerHTML = `
+    <div class="look-row"><h3 class="ap-h">Accent colour</h3>
+      <div class="swatches">
+        <button class="swatch reset ${acc ? "" : "on"}" data-accent="" title="Use the theme's own colour">Theme</button>
+        ${ACCENTS.map(([h, n]) => `<button class="swatch ${acc.toLowerCase() === h ? "on" : ""}" style="--sw:${h}" data-accent="${h}" title="${n}" aria-label="${n}"></button>`).join("")}
+        <input type="color" class="swatch-pick" id="accent-pick" value="${/^#[0-9a-f]{6}$/i.test(acc) ? acc : "#ffce00"}" title="Pick any colour" aria-label="Custom accent colour" />
+      </div></div>
+    <div class="look-row"><h3 class="ap-h">Light and dark</h3>
+      <label class="check"><input id="look-follow" type="checkbox" ${follow ? "checked" : ""} /><span>Follow Windows: switch to the Daylight theme when Windows is in light mode (dark themes only)</span></label></div>
+    <div class="look-row"><h3 class="ap-h">Text and interface size</h3>${seg("scale", scale, SCALES)}</div>
+    <div class="look-row"><h3 class="ap-h">Spacing</h3>${seg("density", dens, [["normal", "Comfortable"], ["compact", "Compact (small screens)"]])}</div>
+    <div class="look-row"><h3 class="ap-h">Animations</h3>${seg("motion", mot, [["full", "On"], ["reduced", "Reduced"]])}</div>`;
+}
+$("look-extra").addEventListener("click", (ev) => {
+  const sw = ev.target.closest("[data-accent]");
+  if (sw) { applyAccent(sw.dataset.accent); return; }
+  const b = ev.target.closest("[data-look] button");
+  if (!b) return;
+  const k = b.parentElement.dataset.look;
+  if (k === "scale") applyScale(b.dataset.v); else if (k === "density") applyDensity(b.dataset.v); else if (k === "motion") applyMotion(b.dataset.v);
+});
+$("look-extra").addEventListener("change", (ev) => {
+  if (ev.target.id === "look-follow") { lsSet("bsh-follow", ev.target.checked ? "1" : ""); paintTheme(); }
+});
+// While dragging in the colour picker, apply the colour without rebuilding the controls (that would drop the picker).
+$("look-extra").addEventListener("input", (ev) => { if (ev.target.id === "accent-pick") applyAccent(ev.target.value, false); });
+$("look-extra").addEventListener("change", (ev) => { if (ev.target.id === "accent-pick") renderLookExtra(); });
+renderLookExtra();
 
 /* ============================== updates ============================== */
 
@@ -1698,6 +1946,153 @@ async function maybeRecap() {
   } catch (e) { console.warn("recap:", e); } // offline etc.: it stays pending for next time
 }
 
+/* ============================ first-run setup ============================ */
+
+const WZ_STEPS = ["Welcome", "Connect", "All set"];
+let wzStep = 0, wzOk = false;
+
+const wzOpen = () => !$("welcome").classList.contains("hidden");
+
+function wzStatus(msg, cls = "") { const el = $("wz-status"); if (el) { el.textContent = msg; el.className = "wz-status " + cls; } }
+
+function wzRender() {
+  $("wz-dots").innerHTML = WZ_STEPS.map((_, i) => `<i class="${i <= wzStep ? "on" : ""}"></i>`).join("");
+  $("wz-title").textContent = ["Welcome to Brawl Stars Hub", "Connect your account", "You're all set"][wzStep];
+  $("wz-back").style.visibility = wzStep ? "visible" : "hidden";
+  $("wz-skip").style.visibility = wzStep < 2 ? "visible" : "hidden";
+  $("wz-next").textContent = ["Get started", wzOk ? "Next" : "Connect", "Finish"][wzStep];
+  $("wz-body").innerHTML = [
+    `<p>This app tracks your games, elo and trophies while it runs, and shows them as graphs, goals and Discord presence. It needs a free <b>Brawl Stars API key</b> to read your public stats. It takes about two minutes.</p>
+     <ol>
+       <li>Open <b>developer.brawlstars.com</b> and sign in with your Supercell ID.</li>
+       <li>Go to <b>My Account</b> and choose <b>Create New Key</b>.</li>
+       <li>Give it any name, and in the IP address box enter your <b>public IP address</b> (search “what is my IP”).</li>
+       <li>Copy the long key it shows you.</li>
+     </ol>
+     <div class="wz-link"><code>developer.brawlstars.com</code><button class="btn ghost" id="wz-copy">Copy address</button></div>
+     <p class="muted small">Keys only work from the IP address you entered. If your internet address changes, the app will tell you, and you add the new one on the same page. Your key stays on this computer.</p>`,
+    `<div class="wz-field"><label for="wz-key">API key</label><input id="wz-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste the key" value="${esc(lastSettings.api_key || "")}" /></div>
+     <div class="wz-field"><label for="wz-tag">Your player tag</label><input id="wz-tag" type="text" autocomplete="off" spellcheck="false" placeholder="#2PP0YLQ" value="${esc(lastSettings.player_tag || "")}" /></div>
+     <p class="muted small">Your tag is under your name on your in-game profile.</p>
+     <div id="wz-status" class="wz-status"></div>`,
+    `<p>${wzName ? `Connected as <b>${esc(wzName)}</b>. ` : ""}The app works in the background, so leave it running (it sits in the tray) and your history builds up as you play.</p>
+     <ol>
+       <li>Add friends under <b>Favorites</b> to track them too.</li>
+       <li>Set a target on <b>Stats &amp; Graphs</b> to follow your progress.</li>
+       <li>Change the look under <b>Settings → Appearance</b>.</li>
+       <li>Press <kbd>?</kbd> any time to see the keyboard shortcuts.</li>
+     </ol>`,
+  ][wzStep];
+  if (wzStep === 0) $("wz-copy").onclick = () => navigator.clipboard?.writeText("developer.brawlstars.com").then(() => toast("Copied."), () => toast("Couldn't copy. Type it into your browser.", true));
+  if (wzStep === 1) { $("wz-key").oninput = $("wz-tag").oninput = () => { wzOk = false; $("wz-next").textContent = "Connect"; }; setTimeout(() => ($("wz-key").value ? $("wz-tag") : $("wz-key")).focus(), 30); }
+}
+
+let wzName = "";
+function wzClose(done) {
+  $("welcome").classList.add("hidden");
+  try { if (done) localStorage.setItem("bsh-welcome-done", "1"); else sessionStorage.setItem("bsh-welcome-skip", "1"); } catch (e) { /* private mode */ }
+  if (!lastSettings.api_key) showPage("settings");
+}
+
+async function wzNext() {
+  if (wzStep === 1 && !wzOk) {
+    const key = $("wz-key").value.trim(), tag = $("wz-tag").value.trim();
+    if (!key || !tag) { wzStatus("Enter both your API key and your player tag.", "err"); return; }
+    wzStatus("Checking…");
+    $("wz-next").disabled = true;
+    try {
+      lastSettings = { ...lastSettings, api_key: key, player_tag: tag };
+      await invoke("save_settings", { settings: lastSettings });
+      const p = await invoke("fetch_player", { tag });
+      wzName = p.name; wzOk = true;
+      await loadSettings();
+      wzStatus(`Connected! Found ${p.name}.`, "ok");
+      $("wz-next").textContent = "Next";
+    } catch (e) { wzStatus(errText(e), "err"); }
+    $("wz-next").disabled = false;
+    return;
+  }
+  if (wzStep === 2) { wzClose(true); return; }
+  wzStep++; wzRender();
+}
+
+$("wz-next").onclick = wzNext;
+$("wz-back").onclick = () => { if (wzStep) { wzStep--; wzRender(); } };
+$("wz-skip").onclick = () => wzClose(false);
+
+// Shown on first launch, or whenever the key or tag is missing (until finished or skipped this time).
+function maybeWelcome() {
+  let seen = false, skipped = false;
+  try { seen = !!localStorage.getItem("bsh-welcome-done"); skipped = !!sessionStorage.getItem("bsh-welcome-skip"); } catch (e) { /* ignore */ }
+  const needs = !lastSettings.api_key || !lastSettings.player_tag;
+  if (!needs || skipped || (seen && lastSettings.api_key)) return false;
+  wzStep = 0; wzOk = false; wzName = "";
+  $("welcome").classList.remove("hidden");
+  wzRender();
+  return true;
+}
+
+/* ===================== quick search & keyboard shortcuts ===================== */
+
+let palItems = [], palSel = 0, palFavs = [];
+const palOpen = () => !$("palette").classList.contains("hidden");
+
+function palBuild(q) {
+  const query = q.trim().toLowerCase();
+  const pages = [...document.querySelectorAll(".nav-item")].map((b) => ({ kind: "Page", label: b.textContent.replace(/^[^\p{L}\p{N}]+/u, "").trim(), run: () => showPage(b.dataset.page) }));
+  const me = lastSettings.player_tag ? [{ kind: "You", label: "My profile", run: () => openProfile(lastSettings.player_tag, currentPage) }] : [];
+  const favs = palFavs.map((f) => ({ kind: "Favorite", label: `${f.name || "#" + f.tag}  #${f.tag}`, run: () => openProfile(f.tag, currentPage) }));
+  const all = [...pages, ...me, ...favs];
+  let out = query ? all.filter((i) => i.label.toLowerCase().includes(query)) : all;
+  const tag = normTag(q);
+  if (tag.length >= 3 && /^[0289PYLQGRJCUV]+$/.test(tag)) out = [{ kind: "Player", label: `Open player #${tag}`, run: () => openProfile(tag, currentPage) }, ...out];
+  return out.slice(0, 40);
+}
+
+function palRender() {
+  $("pal-list").innerHTML = palItems.map((it, i) => `<div class="pal-item ${i === palSel ? "sel" : ""}" role="option" data-i="${i}"><span>${esc(it.label)}</span><span class="pi-kind">${esc(it.kind)}</span></div>`).join("")
+    || `<div class="muted small" style="padding:10px 12px">Nothing matches. Type a player tag to look someone up.</div>`;
+  $("pal-list").querySelector(".sel")?.scrollIntoView({ block: "nearest" });
+}
+
+async function openPalette() {
+  $("palette").classList.remove("hidden");
+  $("pal-input").value = ""; palSel = 0;
+  palFavs = []; palItems = palBuild(""); palRender();
+  $("pal-input").focus();
+  try { palFavs = (await invoke("get_favorites")).map((f) => ({ tag: f.tag, name: f.name })); } catch (e) { /* none yet */ }
+  if (palOpen()) { palItems = palBuild($("pal-input").value); palRender(); }
+}
+const closePalette = () => $("palette").classList.add("hidden");
+function palPick(i) { const it = palItems[i]; if (!it) return; closePalette(); it.run(); }
+
+$("pal-input").oninput = () => { palSel = 0; palItems = palBuild($("pal-input").value); palRender(); };
+$("pal-input").onkeydown = (ev) => {
+  if (ev.key === "ArrowDown") { ev.preventDefault(); palSel = Math.min(palItems.length - 1, palSel + 1); palRender(); }
+  else if (ev.key === "ArrowUp") { ev.preventDefault(); palSel = Math.max(0, palSel - 1); palRender(); }
+  else if (ev.key === "Enter") { ev.preventDefault(); palPick(palSel); }
+};
+$("pal-list").onclick = (ev) => { const r = ev.target.closest("[data-i]"); if (r) palPick(Number(r.dataset.i)); };
+$("palette").onclick = (ev) => { if (ev.target === $("palette")) closePalette(); };
+$("shortcuts").onclick = (ev) => { if (ev.target === $("shortcuts") || ev.target.id === "sc-close") $("shortcuts").classList.add("hidden"); };
+
+document.addEventListener("keydown", (ev) => {
+  const t = ev.target, typing = t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
+  if (ev.key === "Escape") {
+    for (const id of ["palette", "shortcuts"]) if (!$(id).classList.contains("hidden")) { $(id).classList.add("hidden"); ev.preventDefault(); return; }
+    return;
+  }
+  if (wzOpen()) return;
+  if ((ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.key.toLowerCase() === "k") { ev.preventDefault(); palOpen() ? closePalette() : openPalette(); return; }
+  if (typing || ev.ctrlKey || ev.metaKey || ev.altKey || document.querySelector(".modal-back:not(.hidden)")) return;
+  if (ev.key === "?") { ev.preventDefault(); $("shortcuts").classList.remove("hidden"); return; }
+  if (/^[1-9]$/.test(ev.key)) { const b = document.querySelectorAll(".nav-item")[Number(ev.key) - 1]; if (b) { ev.preventDefault(); b.click(); } return; }
+  if (ev.key.toLowerCase() === "r") {
+    const btn = document.querySelector(".page.active button[id$='refresh']");
+    if (btn && !btn.disabled) { ev.preventDefault(); btn.click(); }
+  }
+});
+
 /* =============================== boot =============================== */
 
 (async () => {
@@ -1706,7 +2101,8 @@ async function maybeRecap() {
     await refreshFavTags();
     invoke("get_icons").then((m) => { icons = m || {}; }).catch(() => {});
     setPresenceUI(await invoke("presence_running"));
-    if (!lastSettings.api_key) showPage("settings");
+    reportTimezone(); setInterval(reportTimezone, 30 * 60 * 1000);
+    if (!maybeWelcome() && !lastSettings.api_key) showPage("settings");
     invoke("app_version").then((v) => { $("upd-version").textContent = v; }).catch(() => {});
     // Just updated? Show what changed (once).
     invoke("whats_new", { force: false }).then((w) => {

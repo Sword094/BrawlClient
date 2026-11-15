@@ -7,7 +7,25 @@
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="themes.css" />
   <link rel="stylesheet" href="layouts.css" />
-  <script>try { var t = localStorage.getItem("bsh-theme"); if (t && t !== "default") document.documentElement.dataset.theme = t; var n = localStorage.getItem("bsh-nav"), c = localStorage.getItem("bsh-content"); if (n && n !== "sidebar") document.documentElement.dataset.nav = n; if (c && c !== "cards") document.documentElement.dataset.content = c; } catch (e) {}</script>
+  <script>
+    try {
+      var L = localStorage, d = document.documentElement, g = function (k) { return L.getItem(k); };
+      var t = g("bsh-theme") || "default";
+      // "Follow Windows": a light system uses Daylight, unless the chosen theme is already light.
+      if (g("bsh-follow") === "1" && matchMedia("(prefers-color-scheme: light)").matches && ["brutal", "paper", "daylight"].indexOf(t) < 0) t = "daylight";
+      if (t !== "default") d.dataset.theme = t;
+      var n = g("bsh-nav"), c = g("bsh-content");
+      if (n && n !== "sidebar") d.dataset.nav = n;
+      if (c && c !== "cards") d.dataset.content = c;
+      var a = g("bsh-accent");
+      if (a) { d.style.setProperty("--accent", a); d.style.setProperty("--on-accent", g("bsh-on-accent") || "#111"); }
+      var s = g("bsh-scale");
+      if (s && s !== "100") d.style.zoom = s / 100;
+      if (g("bsh-density") === "compact") d.dataset.density = "compact";
+      var m = g("bsh-motion");
+      if (m === "reduced" || m === "full") d.dataset.motion = m;
+    } catch (e) {}
+  </script>
 </head>
 <body>
   <div class="titlebar" data-tauri-drag-region>
@@ -98,6 +116,8 @@
         <div class="recent-controls">
           <select id="stats-select"></select>
           <button class="btn ghost" id="stats-refresh">Refresh</button>
+          <button class="btn ghost" id="stats-csv" title="Save this player's saved games as a spreadsheet file">Export games (CSV)</button>
+          <button class="btn ghost" id="stats-png" title="Save the graph below as an image">Save graph image</button>
         </div>
         <div id="stats-body"></div>
       </section>
@@ -210,6 +230,8 @@
           <label class="sw-row"><span>Club name</span><span class="sw"><input id="pc-club" type="checkbox" /><i><b></b></i></span></label>
           <label class="sw-row"><span>Win streak (only at 3+ wins in a row)</span><span class="sw"><input id="pc-streak" type="checkbox" /><i><b></b></i></span></label>
           <label class="sw-row"><span>Current session (while you're playing)</span><span class="sw"><input id="pc-session" type="checkbox" /><i><b></b></i></span></label>
+          <label class="sw-row"><span>“Just finished” result (for 3 minutes after a game)</span><span class="sw"><input id="pc-finished" type="checkbox" /><i><b></b></i></span></label>
+          <label class="sw-row"><span>“Taking a break” (after 15 minutes without a game)</span><span class="sw"><input id="pc-idle" type="checkbox" /><i><b></b></i></span></label>
           </div>
         </div>
 
@@ -289,8 +311,17 @@
           </label>
           <label class="check">
             <input id="set-notify" type="checkbox" />
-            <span>Desktop notifications (a favorite starts playing, rank changes)</span>
+            <span>Desktop notifications</span>
           </label>
+          <div class="sub" id="notify-sub">
+            <label class="check"><input id="set-n-session" type="checkbox" /><span>A favorite starts playing</span></label>
+            <label class="check"><input id="set-n-rank" type="checkbox" /><span>A rank goes up or down</span></label>
+            <label class="check"><input id="set-n-goal" type="checkbox" /><span>You reach a goal</span></label>
+            <label class="check"><input id="set-quiet" type="checkbox" /><span>Quiet hours (no notifications between)</span></label>
+            <div class="quiet-times" id="quiet-times">
+              <input id="set-quiet-start" type="time" aria-label="Quiet hours start" /> <span class="muted">and</span> <input id="set-quiet-end" type="time" aria-label="Quiet hours end" />
+            </div>
+          </div>
           <label class="check">
             <input id="set-autopresence" type="checkbox" />
             <span>Start Discord Rich Presence automatically when the app opens</span>
@@ -311,6 +342,18 @@
           <div class="theme-grid" id="nav-grid"></div>
           <h3 class="ap-h">Page layout</h3>
           <div class="theme-grid" id="content-grid"></div>
+          <div id="look-extra"></div>
+        </div>
+
+        <div class="card form" id="data-card">
+          <h2>Your data</h2>
+          <p class="hint">Game history, elo graphs, goals, favorites and settings only exist on this computer. A backup file keeps them safe, or moves them to another computer. It never contains your API key.</p>
+          <div class="row-actions">
+            <button class="btn ghost" id="data-backup">Back up now</button>
+            <button class="btn ghost" id="data-restore">Restore from backup…</button>
+            <input type="file" id="data-file" accept=".json,application/json" hidden />
+          </div>
+          <p class="hint">Backups are saved to your Downloads folder. Restoring replaces the saved data for the players in the file (the rest stays) and keeps your API key. A copy of what you had is kept first.</p>
         </div>
 
         <div class="card form" id="update-card">
@@ -351,6 +394,43 @@
       <div class="rc-tiles" id="rc-tiles"></div>
       <p class="muted small" id="rc-games"></p>
       <div class="row-actions"><button class="btn primary" id="rc-close">Nice</button></div>
+    </div>
+  </div>
+
+  <div id="welcome" class="modal-back hidden">
+    <div class="modal welcome" role="dialog" aria-modal="true" aria-labelledby="wz-title">
+      <div class="wz-dots" id="wz-dots"></div>
+      <h2 id="wz-title"></h2>
+      <div id="wz-body"></div>
+      <div class="row-actions wz-actions">
+        <button class="btn ghost" id="wz-skip">Set up later</button>
+        <span class="grow"></span>
+        <button class="btn ghost" id="wz-back">Back</button>
+        <button class="btn primary" id="wz-next">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="palette" class="modal-back pal-back hidden">
+    <div class="modal palette" role="dialog" aria-modal="true" aria-label="Quick search">
+      <input id="pal-input" type="text" placeholder="Go to a page, a saved player, or type a player tag…" autocomplete="off" spellcheck="false" />
+      <div id="pal-list" class="pal-list" role="listbox"></div>
+      <div class="muted small pal-foot">↑ ↓ to move · Enter to open · Esc to close</div>
+    </div>
+  </div>
+
+  <div id="shortcuts" class="modal-back hidden">
+    <div class="modal">
+      <h2>Keyboard shortcuts</h2>
+      <table class="keys">
+        <tr><td><kbd>Ctrl</kbd> <kbd>K</kbd></td><td>Quick search: pages, saved players, or any player tag</td></tr>
+        <tr><td><kbd>1</kbd> – <kbd>9</kbd></td><td>Go to a page, in the order of the menu</td></tr>
+        <tr><td><kbd>R</kbd></td><td>Refresh the page you're on</td></tr>
+        <tr><td><kbd>?</kbd></td><td>Show this list</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Close a window</td></tr>
+      </table>
+      <p class="muted small">Number keys and R are ignored while you're typing in a box.</p>
+      <div class="row-actions"><button class="btn primary" id="sc-close">Got it</button></div>
     </div>
   </div>
 

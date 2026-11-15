@@ -522,3 +522,33 @@
 [data-theme="slate"] .p-header { background: var(--panel); }
 [data-theme="slate"] .stat .value { font-weight: 650; }
 [data-theme="slate"] .seg button.on { color: #fff; }
+
+/* ---------------- Daylight: clean light theme ---------------- */
+[data-theme="daylight"] {
+  color-scheme: light;
+  --bg: #f2f4f9;
+  --bg-2: #e9edf5;
+  --panel: #ffffff;
+  --panel-2: #edf0f7;
+  --border: #d6dce9;
+  --text: #1b2233;
+  --muted: #667089;
+  --accent: #5b4bdb;
+  --accent-2: #8b5cf6;
+  --good: #1c9b57;
+  --bad: #d4404c;
+  --elo: #6d4fd1;
+  --bad-soft: #b3261e;
+  --accent-2-soft: #4b3bb0;
+  --on-accent: #ffffff;
+  --idle: #a5adc2;
+  --scroll-hover: #bcc4d8;
+  --chrome: rgba(255, 255, 255, 0.85);
+  --side-bg: rgba(255, 255, 255, 0.75);
+  --tip-bg: rgba(27, 34, 51, 0.93);
+  --scrim: rgba(27, 34, 51, 0.4);
+  --bg-image: radial-gradient(900px 500px at 85% -10%, rgba(91, 75, 219, 0.1), transparent 60%);
+  --card-shadow: 0 1px 2px rgba(27, 34, 51, 0.06), 0 6px 20px rgba(27, 34, 51, 0.06);
+  --shadow-pop: 0 14px 40px rgba(27, 34, 51, 0.22);
+  --sw-off: #cdd3e3; --sw-on: #1c9b57;
+}

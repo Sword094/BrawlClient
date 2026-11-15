@@ -112,30 +112,38 @@ fn unix_now() -> i64 {
 
 type Book = HashMap<String, Vec<Goal>>;
 
+/// Read-only: goals with their current progress.
 pub fn list(app: &AppHandle, tag: &str) -> Vec<View> {
     let key = api::normalize_tag(tag);
     let series = stats::series(&history::load_history(app, &key));
     let now = unix_now();
     let _g = store::lock();
+    let book: Book = store::load(app, FILE);
+    book.get(&key)
+        .map(|goals| goals.iter().map(|g| View { goal: g.clone(), progress: progress(g, points(&series, &g.metric), now) }).collect())
+        .unwrap_or_default()
+}
+
+/// Records the time of goals that have just been reached (so they stay reached after a season
+/// reset) and returns those goals, so the caller can announce each one exactly once.
+pub fn mark_reached(app: &AppHandle, tag: &str) -> Vec<Goal> {
+    let key = api::normalize_tag(tag);
+    let series = stats::series(&history::load_history(app, &key));
+    let now = unix_now();
+    let _g = store::lock();
     let mut book: Book = store::load(app, FILE);
-    let goals = book.entry(key.clone()).or_default();
-    let mut changed = false;
-    let views: Vec<View> = goals
-        .iter_mut()
-        .map(|g| {
-            let p = progress(g, points(&series, &g.metric), now);
-            // Remember the first time a goal was reached so it stays reached after a season reset.
-            if p.status == "reached" && g.reached_at.is_none() {
-                g.reached_at = Some(now);
-                changed = true;
-            }
-            View { goal: g.clone(), progress: p }
-        })
-        .collect();
-    if changed {
+    let Some(goals) = book.get_mut(&key) else { return Vec::new() };
+    let mut done = Vec::new();
+    for g in goals.iter_mut().filter(|g| g.reached_at.is_none()) {
+        if progress(g, points(&series, &g.metric), now).status == "reached" {
+            g.reached_at = Some(now);
+            done.push(g.clone());
+        }
+    }
+    if !done.is_empty() {
         let _ = store::save(app, FILE, &book);
     }
-    views
+    done
 }
 
 pub fn add(app: &AppHandle, tag: &str, metric: &str, target: i64, deadline: Option<i64>) -> Result<(), String> {

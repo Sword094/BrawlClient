@@ -16,6 +16,10 @@ const UPDATE_EVERY: Duration = Duration::from_secs(30);
 const RETRY_EVERY: Duration = Duration::from_secs(5);
 const RECENT_GAMES: usize = 20;
 const STREAK_MIN: u32 = 3;
+/// How long after a game ends the "just finished" view is shown.
+const FINISHED_SECS: i64 = 180;
+/// How long without a game before the "idle" view applies.
+const IDLE_SECS: i64 = 900;
 
 /* ------------------------------ small helpers ----------------------------- */
 
@@ -156,6 +160,18 @@ pub struct Ctx {
     /// brawler id (text) -> image URL
     pub icons: HashMap<String, String>,
     pub tag: String,
+    /// Unix seconds when this was fetched; "just finished" and "idle" are measured from it.
+    pub now: i64,
+}
+
+/// "3 min", "2 h", "4 days" for a gap in seconds.
+fn gap(secs: i64) -> String {
+    match secs {
+        s if s < 90 => "moments".into(),
+        s if s < 3600 => format!("{} min", s / 60),
+        s if s < 86_400 => format!("{} h", s / 3600),
+        s => format!("{} d", s / 86_400),
+    }
 }
 
 /// Fetches everything one refresh needs. The battle log is optional: if it can't be fetched,
@@ -171,7 +187,7 @@ pub async fn context(app: &AppHandle, s: &Settings) -> Result<Ctx, String> {
     let matches = hist.matches(&tag);
     let live = history::current_session(&matches, unix_now());
     let icons = if s.presence_images { icons::get(app).await } else { HashMap::new() };
-    Ok(Ctx { player, matches, live, icons, tag })
+    Ok(Ctx { player, matches, live, icons, tag, now: unix_now() })
 }
 
 /* --------------------------------- placeholders ------------------------------- */
@@ -247,7 +263,26 @@ pub fn views(ctx: &Ctx, s: &Settings) -> Vec<View> {
     let want = |id: &str, on: bool| on || id == pin;
     let mut out: Vec<View> = Vec::new();
 
-    if want("latest", s.presence_latest) {
+    // Fresh result first: for a few minutes after a game ends, lead with it (and skip the
+    // plain "last match" view, which would say the same thing).
+    let age = last.map(|m| ctx.now - m.end);
+    let fresh = last.filter(|_| s.presence_finished || pin == "finished").filter(|_| age.map_or(false, |a| (0..=FINISHED_SECS).contains(&a)));
+    if let Some(m) = fresh {
+        let who = my_ref(m).map_or(String::new(), |r| format!(" · {}", title_case(&r.brawler)));
+        let tally = ctx.live.as_ref().map_or(String::new(), |(sess, _)| format!(" · {}W-{}L this session", sess.wins, sess.losses));
+        out.push(view(
+            "finished",
+            format!("Just finished: {}{who}", result_text(m)),
+            format!("{} · {} · {}{tally}", kind_label(m), pretty_mode(&m.mode), change_text(m)),
+        ));
+    }
+    // After a break: say so instead of pretending a session is running.
+    if (s.presence_idle || pin == "idle") && ctx.live.is_none() {
+        if let Some(a) = age.filter(|a| *a > IDLE_SECS) {
+            out.push(view("idle", "Taking a break".to_string(), format!("Last game {} ago", gap(a))));
+        }
+    }
+    if want("latest", s.presence_latest) && (fresh.is_none() || pin == "latest") {
         if let Some(m) = last {
             let who = my_ref(m).map_or(String::new(), |r| format!(" · {} · Power {}", title_case(&r.brawler), r.power));
             out.push(view(
@@ -502,7 +537,7 @@ mod tests {
     fn ctx(matches: Vec<Match>) -> Ctx {
         let mut icons = HashMap::new();
         icons.insert("16000044".to_string(), "https://example.com/angelo.png".to_string());
-        Ctx { player: profile(), matches, live: None, icons, tag: "ABC123".into() }
+        Ctx { player: profile(), matches, live: None, icons, tag: "ABC123".into(), now: 10_000 }
     }
 
     fn ids(v: &[View]) -> Vec<&str> {
@@ -610,5 +645,48 @@ mod tests {
         s.presence_latest = false; s.presence_trophies = false; s.presence_ranked = false;
         s.presence_session = false; s.presence_victories = false; s.presence_record = false;
         assert_eq!(ids(&views(&ctx(vec![]), &s)), vec!["trophies"]);
+    }
+
+    fn ended(mut m: Match, end: i64) -> Match {
+        m.end = end;
+        m
+    }
+
+    #[test]
+    fn just_finished_leads_for_a_few_minutes_then_gives_way_to_latest() {
+        let s = Settings::default();
+        // Game ended 60 s ago (now = 10_000): the fresh view replaces "latest".
+        let fresh = ctx(vec![ended(game("victory", true, Some(14)), 9_940)]);
+        let v = views(&fresh, &s);
+        assert_eq!(v[0].id, "finished");
+        assert_eq!(v[0].details, "Just finished: Victory · Angelo");
+        assert!(v[0].state.contains("+14 elo"), "{}", v[0].state);
+        assert!(!ids(&v).contains(&"latest"));
+        // Pinning "latest" still shows it.
+        let pinned = Settings { presence_pin: "latest".into(), ..Settings::default() };
+        assert_eq!(ids(&views(&fresh, &pinned)), ["latest"]);
+        // Ten minutes later it is just the normal last-match view.
+        let later = ctx(vec![ended(game("victory", true, Some(14)), 9_000)]);
+        let v = views(&later, &s);
+        assert!(ids(&v).contains(&"latest") && !ids(&v).contains(&"finished"));
+        // And it can be switched off.
+        let off = Settings { presence_finished: false, ..Settings::default() };
+        assert!(!ids(&views(&fresh, &off)).contains(&"finished"));
+    }
+
+    #[test]
+    fn idle_view_needs_a_break_and_no_live_session() {
+        let on = Settings { presence_idle: true, ..Settings::default() };
+        let old = ctx(vec![ended(game("defeat", false, None), 10_000 - 2 * 3600)]);
+        let v = views(&old, &on);
+        let idle = v.iter().find(|x| x.id == "idle").expect("idle view");
+        assert_eq!((idle.details.as_str(), idle.state.as_str()), ("Taking a break", "Last game 2 h ago"));
+        // Off by default, and not shown right after a game.
+        assert!(!ids(&views(&old, &Settings::default())).contains(&"idle"));
+        let recent = ctx(vec![ended(game("defeat", false, None), 9_800)]);
+        assert!(!ids(&views(&recent, &on)).contains(&"idle"));
+        assert_eq!(gap(30), "moments");
+        assert_eq!(gap(5 * 60), "5 min");
+        assert_eq!(gap(3 * 86_400), "3 d");
     }
 }

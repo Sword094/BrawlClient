@@ -18,7 +18,10 @@ use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 
-const POLL_EVERY: Duration = Duration::from_secs(60);
+/// Longest wait between rounds while errors keep happening.
+const MAX_BACKOFF_SECS: u64 = 900;
+/// Wait when the API has rejected the key; hammering it won't help until the user fixes it.
+const AUTH_FAILED_SECS: u64 = 300;
 const BETWEEN_PLAYERS: Duration = Duration::from_millis(400);
 const ACTIVE_WINDOW_SECS: i64 = 600;
 /// How long a finished ranked match waits for its elo change before being logged without one.
@@ -317,13 +320,24 @@ fn apply_poll(app: &AppHandle, tag: &str, is_self: bool, player: &Value, items: 
     history::save_locked(app, tag, &hist);
     drop(guard);
 
-    if !events.is_empty() && settings::load(app).notifications {
-        for e in events {
-            // You know when you start playing; only notify about other people doing so.
-            if e.kind == "session" && is_self {
-                continue;
-            }
+    let cfg = settings::load(app);
+    for e in events {
+        // You know when you start playing; only notify about other people doing so.
+        if e.kind == "session" && is_self {
+            continue;
+        }
+        if settings::allow_notification(&cfg, e.kind, now) {
             notify(app, &e.title, &e.body);
+        }
+    }
+
+    // A goal reached by this poll gets one notification, then stays marked as reached.
+    let who = player.get("name").and_then(Value::as_str).unwrap_or("");
+    for g in crate::goals::mark_reached(app, tag) {
+        if settings::allow_notification(&cfg, "goal", now) {
+            let unit = if g.metric == "elo" { "elo" } else { "trophies" };
+            let body = if is_self || who.is_empty() { format!("You reached {} {unit}.", g.target) } else { format!("{who} reached {} {unit}.", g.target) };
+            notify(app, "Goal reached", &body);
         }
     }
 }
@@ -356,30 +370,84 @@ fn tracked_tags(app: &AppHandle) -> Vec<String> {
     tags
 }
 
-/// Runs until aborted. Checks every tracked player once a minute.
+/// How long to wait before the next round of checks.
+///
+/// `idle_secs` is the time since the most recently active tracked player last finished a game
+/// (None = unknown). Players who are in a session are checked often; someone who hasn't played
+/// for hours only needs an occasional look. After failed rounds the wait doubles up to
+/// `MAX_BACKOFF_SECS`; `retry_after` (from a 429) is honoured as a minimum, and a rejected key
+/// (`auth_failed`) waits `AUTH_FAILED_SECS` since retrying can't succeed.
+pub fn next_delay(idle_secs: Option<i64>, fails: u32, retry_after: Option<u64>, auth_failed: bool) -> Duration {
+    let mut secs: u64 = match idle_secs {
+        None => 60,
+        Some(s) if s <= ACTIVE_WINDOW_SECS => 45,
+        Some(s) if s <= 3600 => 90,
+        Some(s) if s <= 6 * 3600 => 180,
+        Some(_) => 300,
+    };
+    if fails > 0 {
+        let back = 60u64.saturating_mul(1u64 << (fails - 1).min(6));
+        secs = secs.max(back.min(MAX_BACKOFF_SECS));
+    }
+    if auth_failed {
+        secs = secs.max(AUTH_FAILED_SECS);
+    }
+    if let Some(r) = retry_after {
+        secs = secs.max(r.saturating_add(1));
+    }
+    Duration::from_secs(secs)
+}
+
+/// Seconds since the most recent game finished across everyone tracked.
+fn idle_secs(app: &AppHandle, tags: &[String], now: i64) -> Option<i64> {
+    let states: HashMap<String, PlayerState> = {
+        let _g = store::lock();
+        store::load(app, STATE_FILE)
+    };
+    tags.iter()
+        .filter_map(|t| states.get(t))
+        .filter_map(|st| parse_battle_time(&st.last_battle_time))
+        .map(|t| (now - t).max(0))
+        .min()
+}
+
+/// Runs until aborted. Checks every tracked player, as often as their activity warrants.
 pub async fn run(app: AppHandle) {
     let mut last_error = String::new();
+    let mut fails: u32 = 0;
     loop {
         let s = settings::load(&app);
+        let mut delay = next_delay(None, 0, None, false);
         if !s.api_key.trim().is_empty() {
-            for tag in tracked_tags(&app) {
-                match poll_player(&app, &s.api_key, &tag).await {
-                    Ok(()) => last_error.clear(),
+            let tags = tracked_tags(&app);
+            let (mut ok, mut bad, mut auth_failed) = (0u32, 0u32, false);
+            for tag in &tags {
+                match poll_player(&app, &s.api_key, tag).await {
+                    Ok(()) => {
+                        ok += 1;
+                        last_error.clear();
+                    }
                     Err(e) => {
+                        bad += 1;
+                        auth_failed |= e.contains("403");
                         if e != last_error {
                             let _ = app.emit("tracker-error", format!("{tag}: {e}"));
                             last_error = e.clone();
                         }
                         if e.contains("429") {
-                            tokio::time::sleep(Duration::from_secs(30)).await;
+                            // Stop this round; the wait below covers the API's requested pause.
+                            break;
                         }
                     }
                 }
                 tokio::time::sleep(BETWEEN_PLAYERS).await;
             }
+            // A round counts as failed only if nothing in it worked.
+            fails = if bad > 0 && ok == 0 { fails.saturating_add(1) } else { 0 };
+            delay = next_delay(idle_secs(&app, &tags, unix_now()), fails, api::take_retry_after(), auth_failed);
             let _ = app.emit("tracker-update", ());
         }
-        tokio::time::sleep(POLL_EVERY).await;
+        tokio::time::sleep(delay).await;
     }
 }
 
@@ -618,5 +686,23 @@ mod tests {
         r.poll_player(&p, &[], "20261107T221100.000Z");
         assert_eq!(r.events.iter().filter(|e| e.kind == "rank").count(), 1);
         assert!(r.log.iter().any(|e| e.text.contains("ranked up to LEGENDARY I")));
+    }
+
+    #[test]
+    fn polling_slows_down_when_idle_and_backs_off_on_errors() {
+        let secs = |idle, fails, ra, auth| next_delay(idle, fails, ra, auth).as_secs();
+        assert_eq!(secs(Some(60), 0, None, false), 45); // mid-session
+        assert_eq!(secs(Some(1800), 0, None, false), 90);
+        assert_eq!(secs(Some(4 * 3600), 0, None, false), 180);
+        assert_eq!(secs(Some(3 * 86400), 0, None, false), 300);
+        assert_eq!(secs(None, 0, None, false), 60);
+        // Errors double the wait, capped, but never shorten the normal one.
+        assert_eq!(secs(Some(60), 1, None, false), 60);
+        assert_eq!(secs(Some(60), 3, None, false), 240);
+        assert_eq!(secs(Some(60), 20, None, false), 900);
+        assert_eq!(secs(Some(3 * 86400), 1, None, false), 300);
+        // A rate-limit pause is honoured; a rejected key waits five minutes.
+        assert_eq!(secs(Some(60), 1, Some(120), false), 121);
+        assert_eq!(secs(Some(60), 1, None, true), 300);
     }
 }

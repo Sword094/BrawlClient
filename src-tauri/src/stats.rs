@@ -142,6 +142,18 @@ pub fn day_results(matches: &[Match]) -> Vec<[i64; 2]> {
         .collect()
 }
 
+/// One entry per finished game for the graph's win/loss markers: [end time, 1 win / -1 loss / 0 other,
+/// 1 if it was ranked]. Oldest first.
+pub fn game_marks(matches: &[Match]) -> Vec<[i64; 3]> {
+    let mut v: Vec<[i64; 3]> = matches
+        .iter()
+        .filter(|m| m.complete || !m.ranked)
+        .map(|m| [m.end, match m.result.as_str() { "victory" => 1, "defeat" => -1, _ => 0 }, m.ranked as i64])
+        .collect();
+    v.sort_by_key(|g| g[0]);
+    v
+}
+
 pub fn series(h: &History) -> Series {
     let mut elo = Vec::new();
     let mut tro = Vec::new();
@@ -232,5 +244,16 @@ mod tests {
         let t = thin(pts);
         assert!(t.len() <= MAX_POINTS + 1);
         assert_eq!(t.last(), Some(&[4999, 4999]));
+    }
+
+    #[test]
+    fn game_marks_are_oldest_first_and_flag_ranked() {
+        let mut a = game("victory", false, Some(8), 500);
+        a.ranked = true;
+        let b = game("defeat", false, Some(-6), 300);
+        let mut unfinished = game("victory", false, None, 700);
+        unfinished.ranked = true;
+        unfinished.complete = false;
+        assert_eq!(game_marks(&[unfinished, a, b]), vec![[300, -1, 0], [500, 1, 1]]);
     }
 }

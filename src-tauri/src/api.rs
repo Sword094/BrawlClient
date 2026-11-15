@@ -1,10 +1,20 @@
 use serde_json::Value;
-use std::sync::OnceLock;
+use std::sync::{atomic::{AtomicU64, Ordering}, OnceLock};
 
 const BASE_URL: &str = "https://api.brawlstars.com/v1";
 const TAG_CHARS: &str = "0289PYLQGRJCUV";
 
 static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+/// Seconds the API asked us to wait after the last 429 (0 = none). Read once by the tracker.
+static RETRY_AFTER: AtomicU64 = AtomicU64::new(0);
+
+/// The wait the API requested with its last "too many requests" answer, if any. Clears it.
+pub fn take_retry_after() -> Option<u64> {
+    match RETRY_AFTER.swap(0, Ordering::Relaxed) {
+        0 => None,
+        n => Some(n),
+    }
+}
 
 pub fn client() -> &'static reqwest::Client {
     CLIENT.get_or_init(|| {
@@ -55,6 +65,10 @@ pub async fn get(api_key: &str, path: &str) -> Result<Value, String> {
             .map_err(|e| format!("Unexpected response from the API: {e}"));
     }
 
+    if status.as_u16() == 429 {
+        let wait = res.headers().get("retry-after").and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<u64>().ok());
+        RETRY_AFTER.store(wait.unwrap_or(0).min(900), Ordering::Relaxed);
+    }
     let body = res.text().await.unwrap_or_default();
     Err(match status.as_u16() {
         403 => "The API rejected your key (403). Your public IP address probably changed or isn't on the key's allowed list. Update it at developer.brawlstars.com.".into(),

@@ -23,6 +23,13 @@ A standalone Windows app (Tauri v2 + Rust) for looking up Brawl Stars players, t
 - **Layouts:** also in **Settings > Appearance**, independent of the theme. Navigation: Sidebar, Icon rail, Top tabs, Floating dock, Grouped sidebar. Page layout: Cards, Compact, List, Columns, Focus. Both live in `src/layouts.css`.
 - **Goals:** on the Stats page, set a target for ranked elo or trophies (with an optional deadline). It shows progress, your pace over the last two weeks, an estimated finish date, and whether you are on track for the deadline. A season reset restarts the pace estimate.
 - **Overall meta:** at the bottom of Ranked Picks, the top 10 brawlers across every map (or one mode) from the same sampled battle logs, with win rate and pick rate.
+- **Your data:** Settings > Your data backs up all saved history, goals, favorites and settings to a file in Downloads (never including the API key) and restores from one. Stats has "Export games (CSV)" and "Save graph image".
+- **Smarter polling:** checks every 45 s during a session, then slows to 90 s, 3 min and 5 min as someone stays idle; errors back off up to 15 min, the API's retry time is honoured, and a rejected key waits 5 min instead of retrying every minute.
+- **First-run setup:** a short wizard on first launch (or whenever the API key or tag is missing) that explains how to get a key, checks it and your tag, and finishes with a few tips.
+- **Keyboard shortcuts:** `Ctrl+K` quick search (pages, saved players, or any tag), `1`–`9` to jump to a page, `R` to refresh, `?` for the list.
+- **Notifications:** Settings has separate switches for a favorite starting to play, rank changes and goals reached, plus optional quiet hours (they follow your local clock).
+- **Presence:** a "Just finished" view for 3 minutes after a game and an optional "Taking a break" view after 15 minutes idle (Discord Presence page).
+- **Looks:** Settings > Appearance also has an accent colour (presets or any colour), a Daylight light theme with a "Follow Windows" switch, text size (90–130%), compact spacing, and reduced animations. Pages fade in, bars and graphs animate, and loading shows placeholder rows. The elo/trophy graph has a hover crosshair, win/loss dots and a dotted line at your next goal; Recent Games shows the brawler you played.
 - **Tags are always uppercase** in the search, compare and settings boxes.
 
 ## What the Brawl Stars API can and can't do

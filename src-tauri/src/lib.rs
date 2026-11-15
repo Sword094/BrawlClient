@@ -1,4 +1,5 @@
 mod api;
+mod backup;
 mod goals;
 mod history;
 mod icons;
@@ -116,8 +117,47 @@ fn get_stats(app: AppHandle, tag: String) -> Value {
         "summary": stats::summarize(&ms),
         "series": stats::series(&h),
         "days": stats::day_results(&ms),
+        "marks": stats::game_marks(&ms),
         "sessions": sessions,
     })
+}
+
+/// The window reports its UTC offset so quiet hours follow the local clock.
+#[tauri::command]
+fn set_tz_offset(app: AppHandle, minutes: i32) -> Result<(), String> {
+    let mut s = settings::load(&app);
+    if s.tz_offset_min != minutes {
+        s.tz_offset_min = minutes;
+        settings::save(&app, &s)?;
+    }
+    Ok(())
+}
+
+/// Saves every tracked file (without the API key) to one backup file in Downloads. Returns its path.
+#[tauri::command]
+fn export_backup(app: AppHandle) -> Result<String, String> {
+    backup::export_backup(&app, &app.package_info().version.to_string())
+}
+
+/// Restores from the text of a backup file chosen in the UI.
+#[tauri::command]
+fn restore_backup(app: AppHandle, text: String) -> Result<Value, String> {
+    backup::restore(&app, &text, &app.package_info().version.to_string())
+}
+
+#[tauri::command]
+fn export_matches_csv(app: AppHandle, tag: String) -> Result<String, String> {
+    backup::export_matches_csv(&app, &tag)
+}
+
+#[tauri::command]
+fn save_png(app: AppHandle, name: String, bytes: Vec<u8>) -> Result<String, String> {
+    backup::save_image(&app, &name, &bytes)
+}
+
+#[tauri::command]
+fn reveal_file(app: AppHandle, path: String) -> Result<(), String> {
+    backup::reveal(&app, &path)
 }
 
 /// Goals with progress, pace and estimated date for one player.
@@ -399,6 +439,12 @@ pub fn run() {
             recommend,
             get_tier_list,
             get_goals,
+            set_tz_offset,
+            export_backup,
+            restore_backup,
+            export_matches_csv,
+            save_png,
+            reveal_file,
             add_goal,
             remove_goal,
             get_favorites,
