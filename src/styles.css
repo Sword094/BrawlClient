@@ -767,3 +767,16 @@ html[data-density="compact"] .modal { padding: 16px 18px; }
 .day-tile .v { font-size: 22px; font-weight: 800; margin: 2px 0; }
 .day-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
 .day-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--panel-2); border: var(--bw) var(--bs) var(--border); border-radius: var(--r-pill); font-size: 13px; }
+
+/* ============================ insights, seasons, tilt ============================ */
+.ins-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; align-items: start; }
+.tb-wrap { display: flex; align-items: flex-end; gap: 3px; height: 90px; margin-top: 8px; }
+.tb-col { flex: 1; height: 100%; display: flex; align-items: flex-end; cursor: default; }
+.tb { display: block; width: 100%; border-radius: 3px 3px 0 0; background: var(--panel-2); border: 1px solid var(--border); }
+.tb.good { background: var(--good); border-color: transparent; } .tb.bad { background: var(--bad); border-color: transparent; } .tb.mid { background: var(--muted); border-color: transparent; opacity: .8; }
+.tb-axis { display: flex; justify-content: space-between; margin-top: 4px; }
+.tb-week span { flex: 1; text-align: center; }
+.season-table td .small.pos { color: var(--good); } .season-table td .small.neg { color: var(--bad); }
+.pill { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: var(--r-pill); background: var(--accent); color: var(--on-accent); vertical-align: middle; margin-left: 4px; }
+.tilt-note { background: color-mix(in srgb, var(--bad) 14%, var(--panel)); border: var(--bw) var(--bs) color-mix(in srgb, var(--bad) 45%, var(--border)); border-radius: var(--r-md); padding: 10px 12px; margin-bottom: 12px; font-size: 13px; line-height: 1.45; }
+.ins-gap { margin-top: 22px; }

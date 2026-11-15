@@ -197,6 +197,46 @@ pub fn day_summary(matches: &[Match], from: i64, to: i64) -> DaySummary {
     d
 }
 
+#[derive(Serialize, Default, Debug, PartialEq)]
+pub struct SeasonRow {
+    pub id: i64,
+    /// First and last reading seen in this season (unix seconds).
+    pub from: i64,
+    pub to: i64,
+    /// First and last elo reading, and the highest and lowest. The app may have joined mid-season.
+    pub start_elo: i64,
+    pub end_elo: i64,
+    pub peak: i64,
+    pub low: i64,
+    pub wins: u32,
+    pub losses: u32,
+}
+
+/// Ranked seasons, newest first, built from the elo readings and the ranked games inside each one.
+pub fn seasons(h: &History, matches: &[Match]) -> Vec<SeasonRow> {
+    let mut rows: Vec<SeasonRow> = Vec::new();
+    for sn in h.snaps.iter().filter(|s| s.elo > 0) {
+        let Some(id) = sn.season else { continue };
+        match rows.iter_mut().find(|r| r.id == id) {
+            Some(r) => {
+                r.to = sn.t;
+                r.end_elo = sn.elo;
+                r.peak = r.peak.max(sn.elo);
+                r.low = r.low.min(sn.elo);
+            }
+            None => rows.push(SeasonRow { id, from: sn.t, to: sn.t, start_elo: sn.elo, end_elo: sn.elo, peak: sn.elo, low: sn.elo, ..Default::default() }),
+        }
+    }
+    for m in matches.iter().filter(|m| m.ranked && m.complete) {
+        if let Some(r) = rows.iter_mut().find(|r| m.end >= r.from && m.end <= r.to) {
+            r.wins += (m.result == "victory") as u32;
+            r.losses += (m.result == "defeat") as u32;
+        }
+    }
+    rows.sort_by_key(|r| std::cmp::Reverse(r.from));
+    rows
+}
+
 pub fn series(h: &History) -> Series {
     let mut elo = Vec::new();
     let mut tro = Vec::new();
@@ -319,5 +359,23 @@ mod tests {
         assert_eq!((d.first, d.last), (Some(1_100), Some(1_500)));
         assert_eq!(day_summary(&ms, 5_000, 6_000).games, 0);
         assert_eq!(day_summary(&ms, 5_000, 6_000).trophy_net, None);
+    }
+
+    #[test]
+    fn seasons_group_readings_and_ranked_games() {
+        let mut h = History::default();
+        for (t, elo, season) in [(10, 5000, Some(1)), (20, 5400, Some(1)), (30, 5200, Some(1)), (40, 0, None), (50, 4000, Some(2)), (60, 4300, Some(2))] {
+            h.snaps.push(Snap { t, elo, trophies: Some(100), season });
+        }
+        let mut win = game("victory", false, None, 25);
+        win.ranked = true;
+        let mut loss = game("defeat", false, None, 55);
+        loss.ranked = true;
+        let mut outside = game("victory", false, None, 99);
+        outside.ranked = true;
+        let rows = seasons(&h, &[win, loss, outside]);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], SeasonRow { id: 2, from: 50, to: 60, start_elo: 4000, end_elo: 4300, peak: 4300, low: 4000, wins: 0, losses: 1 });
+        assert_eq!((rows[1].peak, rows[1].low, rows[1].end_elo, rows[1].wins), (5400, 5000, 5200, 1));
     }
 }

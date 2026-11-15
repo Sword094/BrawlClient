@@ -57,6 +57,10 @@ pub struct PlayerState {
     pub logged_end: i64,
     pub active: bool,
     pub last_checked: i64,
+    /// Losses in a row among the newest finished games, and the end time of the newest game when
+    /// the tilt warning last fired (so one streak warns once).
+    pub loss_streak: u32,
+    pub tilt_end: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -168,6 +172,21 @@ fn finished(m: &Match) -> bool {
 
 /// Pure state transition for one player after one poll. No I/O, so it can be unit tested.
 #[allow(clippy::too_many_arguments)]
+/// Only a streak whose latest loss was this recent triggers the warning (not one found in old history).
+const TILT_FRESH_SECS: i64 = 30 * 60;
+
+/// Defeats in a row among the newest finished games (`matches` is newest first), and the end time
+/// of the newest of them. A draw or win ends the run.
+pub fn loss_streak(matches: &[Match]) -> (u32, i64) {
+    let mut done = matches.iter().filter(|m| finished(m));
+    let first = match done.next() {
+        Some(m) if m.result == "defeat" => m,
+        _ => return (0, 0),
+    };
+    let rest = done.take_while(|m| m.result == "defeat").count() as u32;
+    (1 + rest, first.end)
+}
+
 pub fn apply_poll_logic(
     tag: &str,
     st: &mut PlayerState,
@@ -274,6 +293,7 @@ pub fn apply_poll_logic(
         st.ranked_rank = rank;
     }
 
+    st.loss_streak = loss_streak(&matches).0;
     st.ranked_elo = elo;
     st.season = season;
     if !newest.is_empty() {
@@ -300,6 +320,7 @@ fn notify(app: &AppHandle, title: &str, body: &str) {
 
 fn apply_poll(app: &AppHandle, tag: &str, is_self: bool, player: &Value, items: &[Value]) {
     let now = unix_now();
+    let cfg = settings::load(app);
     let guard = store::lock();
 
     let mut states: HashMap<String, PlayerState> = store::load(app, STATE_FILE);
@@ -309,7 +330,20 @@ fn apply_poll(app: &AppHandle, tag: &str, is_self: bool, player: &Value, items: 
 
     {
         let st = states.entry(tag.to_string()).or_default();
+        let was_init = st.initialized;
         apply_poll_logic(tag, st, &mut activity, &mut hist, &mut events, player, items, now);
+        // Tilt warning: you only, once per losing streak, when it first reaches the chosen length.
+        let (streak, end) = loss_streak(&hist.matches(tag));
+        if is_self && was_init && now - end < TILT_FRESH_SECS && streak >= cfg.tilt_losses.clamp(2, 10) && end > st.tilt_end {
+            st.tilt_end = end;
+            events.push(Event {
+                kind: "tilt",
+                title: format!("{streak} losses in a row"),
+                body: "Might be a good time for a short break.".to_string(),
+            });
+        } else if streak == 0 {
+            st.tilt_end = 0; // a win resets, so the next streak can warn again
+        }
     }
 
     activity.sort_by_key(|e| std::cmp::Reverse(e.ts));
@@ -320,7 +354,6 @@ fn apply_poll(app: &AppHandle, tag: &str, is_self: bool, player: &Value, items: 
     history::save_locked(app, tag, &hist);
     drop(guard);
 
-    let cfg = settings::load(app);
     for e in events {
         // You know when you start playing; only notify about other people doing so.
         if e.kind == "session" && is_self {
@@ -540,6 +573,23 @@ pub fn clear_activity(app: &AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn res(result: &str, end: i64) -> Match {
+        Match { result: result.into(), complete: true, end, ..Default::default() }
+    }
+
+    #[test]
+    fn loss_streak_counts_newest_losses_only() {
+        // newest first: L L L W L
+        let ms = vec![res("defeat", 500), res("defeat", 400), res("defeat", 300), res("victory", 200), res("defeat", 100)];
+        assert_eq!(loss_streak(&ms), (3, 500));
+        assert_eq!(loss_streak(&ms[3..]), (0, 0)); // newest is a win
+        assert_eq!(loss_streak(&[]), (0, 0));
+        let mut unfinished = res("defeat", 600);
+        unfinished.ranked = true;
+        unfinished.complete = false; // a series still in progress doesn't count yet
+        assert_eq!(loss_streak(&[unfinished, res("defeat", 500)]), (1, 500));
+    }
     use serde_json::json;
 
     fn at(time: &str) -> i64 {

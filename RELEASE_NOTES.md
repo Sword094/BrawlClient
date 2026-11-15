@@ -7,7 +7,12 @@
 - **Discord presence:** a "Just finished" result for a few minutes after a game, and an optional "Taking a break" status after a while idle.
 - **Backup and export:** back up and restore all your data (Settings > Your data), export games as CSV, and save the graph as an image. Files go to your Downloads folder.
 
+**Insights**
+- **New Insights page:** who you win with, which brawlers give you trouble (and which you beat), your best and worst brawler pairings, your best brawler on each map, and your win rate by hour and day of the week. Small samples are hidden.
+- **Tilt warning:** an optional notification after you lose a few games in a row (you choose how many), with a matching note in the Day summary.
+
 **Stats**
+- **Ranked seasons:** a table of each season's elo, peak and ranked record.
 - **Day summary:** a card under the graph shows any day's games, record, win rate, trophy and elo change, and the brawlers and modes you played. Step through days, pick a date, or click a square on the activity map.
 
 **Looks**

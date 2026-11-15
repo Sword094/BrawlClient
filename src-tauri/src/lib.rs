@@ -1,6 +1,7 @@
 mod api;
 mod backup;
 mod goals;
+mod insights;
 mod history;
 mod icons;
 mod matches;
@@ -118,6 +119,7 @@ fn get_stats(app: AppHandle, tag: String) -> Value {
         "series": stats::series(&h),
         "days": stats::day_results(&ms),
         "marks": stats::game_marks(&ms),
+        "seasons": stats::seasons(&h, &ms),
         "sessions": sessions,
     })
 }
@@ -127,7 +129,19 @@ fn get_stats(app: AppHandle, tag: String) -> Value {
 fn get_day_summary(app: AppHandle, tag: String, from: i64, to: i64) -> Value {
     let key = api::normalize_tag(&tag);
     let h = history::load_history(&app, &key);
-    json!(stats::day_summary(&h.matches(&key), from, to))
+    let ms = h.matches(&key);
+    let mut v = json!(stats::day_summary(&ms, from, to));
+    v["loss_streak"] = json!(tracker::loss_streak(&ms).0);
+    v
+}
+
+/// Patterns across everything saved for a player. `tz_min` is the window's UTC offset.
+#[tauri::command]
+fn get_insights(app: AppHandle, tag: String, tz_min: i32) -> Value {
+    let key = api::normalize_tag(&tag);
+    let h = history::load_history(&app, &key);
+    let ms = h.matches(&key);
+    json!({ "tracked": !h.items.is_empty(), "insights": insights::build(&ms, tz_min) })
 }
 
 /// The window reports its UTC offset so quiet hours follow the local clock.
@@ -445,7 +459,7 @@ pub fn run() {
             get_presence_preview,
             get_meta,
             recommend,
-            get_tier_list, get_day_summary,
+            get_tier_list, get_day_summary, get_insights,
             get_goals,
             set_tz_offset,
             export_backup,

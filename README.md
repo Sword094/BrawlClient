@@ -30,6 +30,10 @@ A standalone Windows app (Tauri v2 + Rust) for looking up Brawl Stars players, t
 - **Notifications:** Settings has separate switches for a favorite starting to play, rank changes and goals reached, plus optional quiet hours (they follow your local clock).
 - **Presence:** a "Just finished" view for 3 minutes after a game and an optional "Taking a break" view after 15 minutes idle (Discord Presence page).
 - **Day summary:** Stats & Graphs has a card for any single day: games, W–L, win rate, trophies and elo gained, and your brawlers and modes. Use the arrows or date box, or click a day on the activity map. Elo counts only ranked games the app had readings for, and says so when some are missing.
+- **Insights:** a page of patterns from your saved games: teammates, matchups, best brawler per map, and your best hours and days. Needs repeat games before something is listed (3+ with a teammate, 4+ against a brawler, 5+ on a map).
+- **Tilt warning:** after the number of losses in a row you choose in Settings (default 3), you get one notification per streak, only for your own account, and the Day summary shows a note. Quiet hours apply.
+- **Ranked seasons:** Stats & Graphs lists each season's elo, peak and ranked record, built from the readings the app has saved.
+- **Checks:** `.github/workflows/ci.yml` runs the tests and `scripts/check-versions.mjs` on every push. The release build also refuses to publish if the version files don't match the tag.
 - **Looks:** Settings > Appearance also has an accent colour (presets or any colour), a Daylight light theme with a "Follow Windows" switch, text size (90–130%), compact spacing, and reduced animations. Pages fade in, bars and graphs animate, and loading shows placeholder rows. The elo/trophy graph has a hover crosshair, win/loss dots and a dotted line at your next goal; Recent Games shows the brawler you played.
 - **Tags are always uppercase** in the search, compare and settings boxes.
 

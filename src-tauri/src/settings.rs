@@ -22,6 +22,10 @@ pub struct Settings {
     pub notify_session: bool,
     pub notify_rank: bool,
     pub notify_goal: bool,
+    /// Heads-up after a run of losses in a row (only about you).
+    pub notify_tilt: bool,
+    /// How many losses in a row triggers it (2 to 10).
+    pub tilt_losses: u32,
     /// No notifications between `quiet_start` and `quiet_end` ("HH:MM", local time; may wrap midnight).
     pub quiet_enabled: bool,
     pub quiet_start: String,
@@ -67,6 +71,8 @@ impl Default for Settings {
             notify_session: true,
             notify_rank: true,
             notify_goal: true,
+            notify_tilt: true,
+            tilt_losses: 3,
             quiet_enabled: false,
             quiet_start: "23:00".into(),
             quiet_end: "08:00".into(),
@@ -133,12 +139,13 @@ pub fn in_quiet_hours(s: &Settings, now_utc: i64) -> bool {
     }
 }
 
-/// Should a notification of this kind ("session" | "rank" | "goal") be shown right now?
+/// Should a notification of this kind ("session" | "rank" | "goal" | "tilt") be shown right now?
 pub fn allow_notification(s: &Settings, kind: &str, now_utc: i64) -> bool {
     let kind_on = match kind {
         "session" => s.notify_session,
         "rank" => s.notify_rank,
         "goal" => s.notify_goal,
+        "tilt" => s.notify_tilt,
         _ => true,
     };
     s.notifications && kind_on && !in_quiet_hours(s, now_utc)

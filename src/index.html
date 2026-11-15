@@ -48,6 +48,7 @@
       <div class="nav-group">Games</div>
       <button class="nav-item" data-page="recent"><span class="ico">⚔</span>Recent Games</button>
       <button class="nav-item" data-page="stats"><span class="ico">📈</span>Stats &amp; Graphs</button>
+      <button class="nav-item" data-page="insights"><span class="ico">🔎</span>Insights</button>
       <button class="nav-item" data-page="recommend"><span class="ico">🎯</span>Ranked Picks</button>
       <button class="nav-item" data-page="compare"><span class="ico">⇄</span>Compare</button>
       <div class="nav-group">App</div>
@@ -120,6 +121,17 @@
           <button class="btn ghost" id="stats-png" title="Save the graph below as an image">Save graph image</button>
         </div>
         <div id="stats-body"></div>
+      </section>
+
+      <!-- INSIGHTS -->
+      <section class="page" id="page-insights">
+        <h1>Insights</h1>
+        <p class="muted">Patterns in the games this app has saved: who you win with, which brawlers give you trouble, what suits each map, and when you play best. Small samples are hidden so one lucky game doesn't look like a trend.</p>
+        <div class="recent-controls">
+          <select id="ins-select"></select>
+          <button class="btn ghost" id="ins-refresh">Refresh</button>
+        </div>
+        <div id="ins-body"></div>
       </section>
 
       <!-- RECOMMENDER -->
@@ -317,6 +329,8 @@
             <label class="check"><input id="set-n-session" type="checkbox" /><span>A favorite starts playing</span></label>
             <label class="check"><input id="set-n-rank" type="checkbox" /><span>A rank goes up or down</span></label>
             <label class="check"><input id="set-n-goal" type="checkbox" /><span>You reach a goal</span></label>
+            <label class="check"><input id="set-n-tilt" type="checkbox" /><span>You lose
+              <select id="set-tilt-n" aria-label="Losses in a row"><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>8</option><option>10</option></select> games in a row (a nudge to take a break)</span></label>
             <label class="check"><input id="set-quiet" type="checkbox" /><span>Quiet hours (no notifications between)</span></label>
             <div class="quiet-times" id="quiet-times">
               <input id="set-quiet-start" type="time" aria-label="Quiet hours start" /> <span class="muted">and</span> <input id="set-quiet-end" type="time" aria-label="Quiet hours end" />

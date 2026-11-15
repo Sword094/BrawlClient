@@ -1,0 +1,34 @@
+name: Check
+
+# Runs on every push and pull request: the Rust tests, a syntax check of the UI script,
+# and a check that the version is written the same everywhere.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Version numbers agree
+        run: node scripts/check-versions.mjs
+
+      - name: UI script has no syntax errors
+        run: node --check src/app.js
+
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test

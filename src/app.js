@@ -85,6 +85,86 @@ function toast(msg, isErr = false, action = null) {
   toastTimer = setTimeout(() => el.classList.add("hidden"), isErr ? 5000 : action ? 9000 : 2200);
 }
 
+/* ============================ insights page ============================ */
+
+let insTag = "", insToken = 0;
+
+function insRows(title, hint, rows, icons) {
+  if (!rows.length) return `<div><h2>${esc(title)}</h2><div class="empty small">${esc(hint)}</div></div>`;
+  return rateTable(title, rows, icons);
+}
+
+function insBars(slots, labels, title) {
+  const max = Math.max(1, ...slots.map((s) => s[0] + s[1]));
+  const bars = slots.map((s, i) => {
+    const n = s[0] + s[1], rate = n ? Math.round((s[0] / n) * 100) : 0;
+    const cls = n < 3 ? "" : rate >= 55 ? "good" : rate < 45 ? "bad" : "mid";
+    const tip = n ? `${labels[i]}: ${n} game${n === 1 ? "" : "s"} · ${s[0]}W–${s[1]}L · ${rate}% win rate` : `${labels[i]}: no games`;
+    return `<div class="tb-col" data-tip="${esc(tip)}"><i class="tb ${cls}" style="height:${n ? Math.max(6, Math.round((n / max) * 100)) : 0}%"></i></div>`;
+  }).join("");
+  return `<div><h2>${esc(title)}</h2><div class="tb-wrap">${bars}</div></div>`;
+}
+
+function insightsHtml(ins) {
+  if (ins.games < 5) return `<div class="notice">Not enough saved games yet (${ins.games}). Keep the app running while you play and this fills in.</div>`;
+  const hardest = ins.enemies.slice(0, 8);
+  const easiest = ins.enemies.length > 8 ? ins.enemies.slice(-8).reverse() : [];
+  const pairName = (p) => ({ name: `${p.mine} vs ${p.theirs}`, id: p.mine_id, wins: p.wins, losses: p.losses });
+  const worst = ins.pairs.slice(0, 6).filter((p) => p.wins < p.losses).map(pairName);
+  const best = ins.pairs.slice().reverse().slice(0, 6).filter((p) => p.wins > p.losses).map(pairName);
+  const mapRows = ins.maps.map((m) => {
+    const n = m.wins + m.losses, pct = Math.round((m.wins / n) * 100);
+    const b = m.best, bn = b ? b.wins + b.losses : 0;
+    return `<tr><td class="name">${esc(m.map)}</td><td class="num">${m.wins}–${m.losses}</td>
+      <td class="num"><span class="bar"><i style="width:${pct}%"></i></span> ${pct}%</td>
+      <td class="name">${b ? `${brIcon(b.id, b.name, 22)}${esc(b.name)} <span class="muted">${b.wins}–${b.losses} (${Math.round((b.wins / bn) * 100)}%)</span>` : `<span class="muted">not enough games</span>`}</td></tr>`;
+  }).join("");
+  const hourLabels = Array.from({ length: 24 }, (_, h) => new Date(2000, 0, 1, h).toLocaleTimeString([], { hour: "numeric" }));
+  const days = [0, 1, 2, 3, 4, 5, 6].map((d) => new Date(2000, 0, 2 + d).toLocaleDateString([], { weekday: "long" }));
+  return `
+    <div class="ins-grid">${insRows("Who you play with", "Play a few more games with the same people (3 or more) and they appear here.", ins.mates, false)}
+      ${insRows("Your best and worst pairings", "Not enough repeat matchups yet.", [...best, ...worst], true)}</div>
+    <div class="ins-grid ins-gap">${insRows("Brawlers that give you trouble", "Fewer than 4 games against any one brawler so far.", hardest, true)}
+      ${easiest.length ? rateTable("Brawlers you beat most", easiest, true) : ""}</div>
+    <div class="section-head"><h2>Maps</h2></div>
+    <div class="card">${ins.maps.length ? `<div class="table-wrap"><table><thead><tr><th>Map</th><th>W–L</th><th>Win rate</th><th>Your best brawler there</th></tr></thead><tbody>${mapRows}</tbody></table></div>` : `<div class="empty small">Maps appear after 5 games on the same map.</div>`}</div>
+    <div class="section-head"><h2>When you play best</h2></div>
+    <div class="card">${insBars(ins.hours, hourLabels, "By hour of day")}<div class="tb-axis muted small"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>11 PM</span></div>
+      <div style="height:14px"></div>${insBars(ins.weekdays, days, "By day of the week")}<div class="tb-axis tb-week muted small">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => `<span>${d}</span>`).join("")}</div>
+      <div class="chart-foot muted small"><span class="chart-key"><span><i style="background:var(--good)"></i>55%+ wins</span><span><i style="background:var(--muted)"></i>about even</span><span><i style="background:var(--bad)"></i>under 45%</span></span> Taller bar = more games. Uncoloured bars have fewer than 3 games.</div></div>`;
+}
+
+async function renderInsightsPage() {
+  if (!insTag) insTag = normTag(lastSettings.player_tag);
+  const opts = await playerOptions(insTag);
+  if (!insTag && opts.length) insTag = opts[0].tag;
+  $("ins-select").innerHTML = opts.map((o) => `<option value="${esc(o.tag)}" ${o.tag === insTag ? "selected" : ""}>${esc(o.label)}</option>`).join("") || `<option value="">No players yet</option>`;
+  if (!insTag) { $("ins-body").innerHTML = `<div class="notice">Set your player tag in Settings first.</div>`; return; }
+  const token = ++insToken;
+  showSkeleton($("ins-body"), skel.cards(5));
+  let r;
+  try { r = await invoke("get_insights", { tag: insTag, tzMin: -new Date().getTimezoneOffset() }); }
+  catch (e) { $("ins-body").innerHTML = `<div class="error">${esc(errText(e))}</div>`; return; }
+  if (token !== insToken) return;
+  $("ins-body").innerHTML = r.tracked ? insightsHtml(r.insights) : `<div class="notice">Nothing saved for this player yet. Make them <b>you</b> in Settings or add them to <b>Favorites</b> and keep the app running.</div>`;
+}
+$("ins-select").onchange = () => { insTag = $("ins-select").value; renderInsightsPage(); };
+$("ins-refresh").onclick = () => renderInsightsPage();
+(() => {
+  const body = $("ins-body");
+  const tipEl = () => document.querySelector(".hm-tip"); // created by the Stats page code, so look it up when needed
+  body.addEventListener("mouseover", (ev) => {
+    const tip = tipEl(), c = ev.target.closest("[data-tip]");
+    if (!tip) return;
+    if (!c) { tip.hidden = true; return; }
+    tip.textContent = c.dataset.tip; tip.hidden = false;
+    const r = c.getBoundingClientRect();
+    tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 8, Math.max(8, r.left + r.width / 2 - tip.offsetWidth / 2)) + "px";
+    tip.style.top = r.top - tip.offsetHeight - 8 + "px";
+  });
+  body.addEventListener("mouseleave", () => { const tip = tipEl(); if (tip) tip.hidden = true; });
+})();
+
 /* ============================ loading skeletons ============================ */
 
 const skel = {
@@ -201,6 +281,7 @@ function showPage(name) {
   if (name === "favorites") renderFavorites();
   if (name === "recent") renderRecentPage();
   if (name === "stats") renderStatsPage();
+  if (name === "insights") renderInsightsPage();
   if (name === "recommend") initRecommend();
   if (name === "presence") renderPresencePage();
   if (name === "activity") renderActivity();
@@ -997,6 +1078,7 @@ async function loadDay() {
 }
 
 function dayBody(d) {
+  if (!d) return "";
   const isToday = sameDay(selDay, new Date());
   if (!d.games) {
     return `<div class="empty small">${isToday ? "No games saved yet today." : "No games saved for this day."}<br><span class="muted">Only games this app has seen are counted. Pick another day or click one on the activity map.</span></div>`;
@@ -1021,9 +1103,28 @@ function dayBody(d) {
   ].join("");
   const rows = (list) => list.map((r) => { const n = r.wins + r.losses; const p = n ? Math.round((r.wins / n) * 100) : 0;
     return `<span class="day-chip">${r.id ? brIcon(r.id, r.name, 20) : ""}<b>${esc(r.name)}</b> ${r.wins}–${r.losses} <span class="muted">${p}%</span></span>`; }).join("");
-  return `<div class="day-sentence">${sentence}</div><div class="day-tiles">${tiles}</div>
+  const need = lastSettings.tilt_losses || 3;
+  const tilt = isToday && d.loss_streak >= need
+    ? `<div class="tilt-note">You've lost your last <b>${d.loss_streak}</b> in a row. A short break (water, stretch, a few minutes) often helps more than another game.</div>` : "";
+  return `${tilt}<div class="day-sentence">${sentence}</div><div class="day-tiles">${tiles}</div>
     ${d.by_brawler.length ? `<div class="day-chips"><span class="muted small">Brawlers</span>${rows(d.by_brawler)}</div>` : ""}
     ${d.by_mode.length ? `<div class="day-chips"><span class="muted small">Modes</span>${rows(d.by_mode)}</div>` : ""}`;
+}
+
+function seasonsSection(list) {
+  if (!list || !list.length) return "";
+  const rows = list.map((r, i) => {
+    const n = r.wins + r.losses, pct = n ? Math.round((r.wins / n) * 100) : null;
+    const span = `${fmtDay(r.from)} – ${fmtDay(r.to)}`;
+    const d = r.end_elo - r.start_elo;
+    return `<tr><td class="name">Season ${esc(r.id)}${i === 0 && Date.now() / 1000 - r.to < 3 * DAY ? ` <span class="pill">current</span>` : ""}<div class="muted small">${esc(span)}</div></td>
+      <td class="num">${num(r.start_elo)} → <b>${num(r.end_elo)}</b><div class="small ${tone(d)}">${d ? signed(d) : "no change"}</div></td>
+      <td class="num">${num(r.peak)}<div class="muted small">low ${num(r.low)}</div></td>
+      <td class="num">${n ? `${r.wins}–${r.losses}` : "—"}${pct != null ? `<div class="muted small">${pct}%</div>` : ""}</td></tr>`;
+  }).join("");
+  return `<div class="section-head"><h2>Ranked seasons</h2></div>
+    <div class="card"><div class="table-wrap"><table class="season-table"><thead><tr><th>Season</th><th>Elo (first → last)</th><th>Peak</th><th>Ranked W–L</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="muted small" style="margin-top:8px">Elo starts from the first reading this app saw in each season, so a season you joined late shows its later start.</div></div>`;
 }
 
 function heatSection() {
@@ -1096,6 +1197,7 @@ function paintStats() {
     <div class="st-activity">${heatSection()}</div>
     <div class="st-chart">${chartSection()}</div>
     <div class="st-day">${daySection()}</div>
+    <div class="st-seasons">${seasonsSection(r.seasons)}</div>
     <div class="st-rates">
       <div class="section-head"><h2>Win rates</h2></div>
       <div class="two-col">${rateTable("By brawler", s.by_brawler, true)}${rateTable("By mode", s.by_mode, false)}${rateTable("By map", s.by_map, false)}</div>
@@ -1554,6 +1656,8 @@ async function loadSettings() {
   $("set-n-session").checked = lastSettings.notify_session !== false;
   $("set-n-rank").checked = lastSettings.notify_rank !== false;
   $("set-n-goal").checked = lastSettings.notify_goal !== false;
+  $("set-n-tilt").checked = lastSettings.notify_tilt !== false;
+  $("set-tilt-n").value = String(lastSettings.tilt_losses || 3);
   $("set-quiet").checked = !!lastSettings.quiet_enabled;
   $("set-quiet-start").value = lastSettings.quiet_start || "23:00";
   $("set-quiet-end").value = lastSettings.quiet_end || "08:00";
@@ -1587,6 +1691,8 @@ async function saveSettings() {
     notify_session: $("set-n-session").checked,
     notify_rank: $("set-n-rank").checked,
     notify_goal: $("set-n-goal").checked,
+    notify_tilt: $("set-n-tilt").checked,
+    tilt_losses: Number($("set-tilt-n").value) || 3,
     quiet_enabled: $("set-quiet").checked,
     quiet_start: $("set-quiet-start").value || "23:00",
     quiet_end: $("set-quiet-end").value || "08:00",

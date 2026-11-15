@@ -27,6 +27,10 @@ jobs:
 
       - run: npm ci
 
+      # Stops the build before it publishes a release whose version numbers don't match the tag.
+      - name: Check versions against the tag
+        run: node scripts/check-versions.mjs ${{ github.ref_name }}
+
       # The release description (shown in the app's "What's new" screen) comes from RELEASE_NOTES.md.
       - name: Read release notes
         id: notes
