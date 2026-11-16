@@ -1037,8 +1037,25 @@ function chartSection() {
   return `<div class="section-head"><h2>${elo ? "Ranked elo" : "Trophies"}</h2><div class="seg-row">
       ${seg("", "metric", statsMetric, [["trophies", "Trophies"], ["elo", "Ranked elo"]])}
       ${seg("", "range", statsRange, [["today", "Today"], ["7", "7 days"], ["30", "30 days"], ["all", "All time"]])}</div></div>
+    ${elo ? seasonBanner(r.seasons && r.seasons[0]) : ""}
     <div class="card">${gainLine(ranged, elo ? "elo" : "trophies")}${lineChart(ranged,
       elo ? { color: "var(--elo)", unit: "elo", metric: "elo" } : { color: "var(--accent)", unit: "trophies", metric: "trophies" })}</div>`;
+}
+
+// Season-wide elo, whatever range the graph is showing: peak, now, how far below the peak, and totals.
+function seasonBanner(sn) {
+  if (!sn) return "";
+  const fromPeak = sn.end_elo - sn.peak, net = sn.end_elo - sn.start_elo;
+  const tile = (k, v, sub, cls = "") => `<div class="day-tile"><div class="k">${k}</div><div class="v ${cls}">${v}</div><div class="s muted small">${sub || "&nbsp;"}</div></div>`;
+  const partial = sn.wins + sn.losses > sn.elo_games ? `from ${sn.elo_games} of ${sn.wins + sn.losses} ranked games` : `${sn.elo_games} ranked game${sn.elo_games === 1 ? "" : "s"}`;
+  return `<div class="card season-banner"><div class="muted small" style="margin-bottom:8px">Season ${esc(sn.id)} · ${esc(fmtDay(sn.from))} – ${esc(fmtDay(sn.to))} (not affected by the range above)</div>
+    <div class="day-tiles">
+      ${tile("Season peak", num(sn.peak), `now ${num(sn.end_elo)}`)}
+      ${tile("From the peak", fromPeak === 0 ? "at peak" : signed(fromPeak), "now vs season high", tone(fromPeak))}
+      ${tile("Since season start", signed(net), `started at ${num(sn.start_elo)}`, tone(net))}
+      ${tile("Elo won", sn.elo_games ? "+" + num(sn.gained) : "—", partial, sn.elo_games ? "pos" : "")}
+      ${tile("Elo lost", sn.elo_games ? "−" + num(sn.lost) : "—", partial, sn.elo_games ? "neg" : "")}
+    </div></div>`;
 }
 
 /* ---- day summary ---- */

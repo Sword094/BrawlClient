@@ -780,3 +780,4 @@ html[data-density="compact"] .modal { padding: 16px 18px; }
 .pill { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: var(--r-pill); background: var(--accent); color: var(--on-accent); vertical-align: middle; margin-left: 4px; }
 .tilt-note { background: color-mix(in srgb, var(--bad) 14%, var(--panel)); border: var(--bw) var(--bs) color-mix(in srgb, var(--bad) 45%, var(--border)); border-radius: var(--r-md); padding: 10px 12px; margin-bottom: 12px; font-size: 13px; line-height: 1.45; }
 .ins-gap { margin-top: 22px; }
+.season-banner { margin-bottom: 12px; }

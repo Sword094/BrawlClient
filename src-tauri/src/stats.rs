@@ -210,6 +210,11 @@ pub struct SeasonRow {
     pub low: i64,
     pub wins: u32,
     pub losses: u32,
+    /// Elo won and lost (as a positive number) across this season's ranked games that had a reading
+    /// either side, and how many games that covers.
+    pub gained: i64,
+    pub lost: i64,
+    pub elo_games: u32,
 }
 
 /// Ranked seasons, newest first, built from the elo readings and the ranked games inside each one.
@@ -231,6 +236,11 @@ pub fn seasons(h: &History, matches: &[Match]) -> Vec<SeasonRow> {
         if let Some(r) = rows.iter_mut().find(|r| m.end >= r.from && m.end <= r.to) {
             r.wins += (m.result == "victory") as u32;
             r.losses += (m.result == "defeat") as u32;
+            if let Some(c) = m.elo_change {
+                r.gained += c.max(0);
+                r.lost += (-c).max(0);
+                r.elo_games += 1;
+            }
         }
     }
     rows.sort_by_key(|r| std::cmp::Reverse(r.from));
@@ -369,13 +379,19 @@ mod tests {
         }
         let mut win = game("victory", false, None, 25);
         win.ranked = true;
+        win.elo_change = Some(40);
         let mut loss = game("defeat", false, None, 55);
         loss.ranked = true;
+        loss.elo_change = Some(-25);
+        let mut loss2 = game("defeat", false, None, 56);
+        loss2.ranked = true;
+        loss2.elo_change = Some(-15);
         let mut outside = game("victory", false, None, 99);
         outside.ranked = true;
-        let rows = seasons(&h, &[win, loss, outside]);
+        let rows = seasons(&h, &[win, loss, loss2, outside]);
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0], SeasonRow { id: 2, from: 50, to: 60, start_elo: 4000, end_elo: 4300, peak: 4300, low: 4000, wins: 0, losses: 1 });
+        assert_eq!(rows[0], SeasonRow { id: 2, from: 50, to: 60, start_elo: 4000, end_elo: 4300, peak: 4300, low: 4000, wins: 0, losses: 2, gained: 0, lost: 40, elo_games: 2 });
         assert_eq!((rows[1].peak, rows[1].low, rows[1].end_elo, rows[1].wins), (5400, 5000, 5200, 1));
+        assert_eq!((rows[1].gained, rows[1].lost), (40, 0));
     }
 }

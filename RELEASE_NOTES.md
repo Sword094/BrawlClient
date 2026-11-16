@@ -1,24 +1,3 @@
-## What's new in 0.2.7
+## What's new in 0.2.8
 
-**Everyday use**
-- **Setup guide:** a short wizard on first launch that explains how to get an API key and checks it for you.
-- **Keyboard shortcuts:** `Ctrl+K` quick search (pages, saved players, any tag), `1`-`9` to jump between pages, `R` to refresh, `?` for the full list.
-- **Notifications:** choose which events notify you (a favorite starts playing, rank changes, goal reached) and set quiet hours.
-- **Discord presence:** a "Just finished" result for a few minutes after a game, and an optional "Taking a break" status after a while idle.
-- **Backup and export:** back up and restore all your data (Settings > Your data), export games as CSV, and save the graph as an image. Files go to your Downloads folder.
-
-**Insights**
-- **New Insights page:** who you win with, which brawlers give you trouble (and which you beat), your best and worst brawler pairings, your best brawler on each map, and your win rate by hour and day of the week. Small samples are hidden.
-- **Tilt warning:** an optional notification after you lose a few games in a row (you choose how many), with a matching note in the Day summary.
-
-**Stats**
-- **Ranked seasons:** a table of each season's elo, peak and ranked record.
-- **Day summary:** a card under the graph shows any day's games, record, win rate, trophy and elo change, and the brawlers and modes you played. Step through days, pick a date, or click a square on the activity map.
-
-**Looks**
-- Accent colour, a new **Daylight** light theme (with "Follow Windows"), text size, compact spacing, and reduced animations, all in Settings > Appearance.
-- Smooth page transitions, animated bars and graphs, and placeholder rows while data loads.
-- The graph now has a hover crosshair, win/loss dots, and a dotted line at your next goal. Recent Games shows the brawler you played.
-
-**Reliability**
-- Checks are now adaptive: frequent during a session, slower when you're idle, backing off after errors and honouring rate limits.
+- **Season totals on the elo graph:** a banner above the ranked graph shows the current season's peak, how far you are below it, your net change since the season began, and total elo won and lost. It stays the same when you switch between 7 days, 30 days and all time.
