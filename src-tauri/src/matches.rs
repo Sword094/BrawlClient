@@ -299,6 +299,10 @@ pub fn group_matches(items: &[Value], my_tag: &str) -> Vec<Match> {
     groups.iter().map(|g| build_match(g, my_tag)).collect()
 }
 
+/// The most one game can plausibly move elo. A bigger jump is a season reset (or a stale reading
+/// around one) that slipped past the season id check, so it isn't counted as a result.
+const MAX_GAME_ELO: i64 = 400;
+
 /// Works out elo gained/lost per finished ranked match from recorded snapshots.
 ///
 /// For each match, "after" is the last reading taken once the profile has caught up
@@ -348,7 +352,7 @@ pub fn attach_elo(matches: &mut [Match], snaps: &[Snap]) {
         if let (Some(b), Some(a)) = (before, after) {
             // A season reset moves everyone's elo; that isn't a match result.
             let same_season = b.1.is_none() || a.1.is_none() || b.1 == a.1;
-            if same_season {
+            if same_season && (a.0 - b.0).abs() <= MAX_GAME_ELO {
                 matches[k].elo_change = Some(a.0 - b.0);
             }
         }
@@ -469,6 +473,25 @@ mod tests {
         assert_eq!(m[0].elo_before, Some(5680));
         assert_eq!(m[0].elo_after, Some(5705));
         assert_eq!(m[0].elo_change, Some(25));
+    }
+
+    #[test]
+    fn a_season_reset_is_not_a_game_result_even_without_a_season_id() {
+        let items = vec![
+            item("20261107T222129.000Z", 1, "victory", 130, true, teams("#ME")),
+            item("20261107T221211.000Z", 2, "defeat", 109, true, teams("#ME")),
+        ];
+        // The profile still showed last season's 5800 when the first series started; the reset
+        // to 3400 landed before the second one. Neither reading has a season id.
+        let snaps = vec![
+            Snap { t: t("20261107T220800.000Z"), elo: 5800, ..Default::default() },
+            Snap { t: t("20261107T221400.000Z"), elo: 3400, ..Default::default() },
+            Snap { t: t("20261107T222300.000Z"), elo: 3430, ..Default::default() },
+        ];
+        let mut m = group_matches(&items, "#ME");
+        attach_elo(&mut m, &snaps);
+        assert_eq!(m[1].elo_change, None, "the 2400 drop is the reset");
+        assert_eq!(m[0].elo_change, Some(30), "the next game counts normally");
     }
 
     #[test]

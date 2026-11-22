@@ -222,6 +222,13 @@ pub fn seasons(h: &History, matches: &[Match]) -> Vec<SeasonRow> {
     let mut rows: Vec<SeasonRow> = Vec::new();
     for sn in h.snaps.iter().filter(|s| s.elo > 0) {
         let Some(id) = sn.season else { continue };
+        // Right after a reset the profile can show the new season id while the elo is still last
+        // season's final number. That reading belongs to the old season, so it must not become the
+        // new season's start or peak.
+        let carried = rows.iter().all(|r| r.id != id) && rows.last().is_some_and(|prev| prev.end_elo == sn.elo);
+        if carried {
+            continue;
+        }
         match rows.iter_mut().find(|r| r.id == id) {
             Some(r) => {
                 r.to = sn.t;
@@ -369,6 +376,18 @@ mod tests {
         assert_eq!((d.first, d.last), (Some(1_100), Some(1_500)));
         assert_eq!(day_summary(&ms, 5_000, 6_000).games, 0);
         assert_eq!(day_summary(&ms, 5_000, 6_000).trophy_net, None);
+    }
+
+    #[test]
+    fn seasons_ignore_last_seasons_elo_carried_into_the_new_one() {
+        let mut h = History::default();
+        for (t, elo, season) in [(10, 5000, 1), (20, 5400, 1), (30, 5400, 2), (35, 5400, 2), (40, 3400, 2), (50, 3600, 2)] {
+            h.snaps.push(Snap { t, elo, trophies: Some(100), season: Some(season) });
+        }
+        let rows = seasons(&h, &[]);
+        assert_eq!(rows.len(), 2);
+        assert_eq!((rows[0].id, rows[0].from, rows[0].start_elo, rows[0].peak, rows[0].end_elo), (2, 40, 3400, 3600, 3600));
+        assert_eq!((rows[1].peak, rows[1].end_elo), (5400, 5400));
     }
 
     #[test]

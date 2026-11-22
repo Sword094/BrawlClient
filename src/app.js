@@ -826,13 +826,14 @@ function valueAt(pts, t) {
   return v;
 }
 
-function lineChart(points, { color, unit, metric }) {
+function lineChart(points, { color, unit, metric, foot }) {
   const pts = points.filter((p) => p[1] > 0);
   if (pts.length < 2) { chartGeom = null; return `<div class="empty small">Not enough readings yet. Keep the app running while you play.</div>`; }
   const W = 760, H = 220, L = 54, R = 12, T = 12, B = 26;
   const t0 = pts[0][0], t1 = pts[pts.length - 1][0];
   let lo = Math.min(...pts.map((p) => p[1])), hi = Math.max(...pts.map((p) => p[1]));
   const last = pts[pts.length - 1];
+  const fpts = (foot || pts).filter((p) => p[1] > 0); // what the low/high in the footer cover
 
   // The nearest unfinished goal for this metric draws a dotted target line, if it is within reach.
   const goal = (statsGoals || []).filter((g) => g.metric === metric && g.progress.status !== "reached" && g.target > last[1]).sort((a, b) => a.target - b.target)[0];
@@ -873,7 +874,7 @@ function lineChart(points, { color, unit, metric }) {
     <circle cx="${x(last[0])}" cy="${y(last[1])}" r="4" style="fill:${color}"/>
     <g class="xh" style="display:none"><line y1="${T}" y2="${H - B}"/><circle r="5" style="fill:${color}"/></g>
   </svg>
-  <div class="chart-foot muted small">Latest ${num(last[1])} ${esc(unit)} · low ${num(Math.min(...pts.map((p) => p[1])))} · high ${num(Math.max(...pts.map((p) => p[1])))}${dots ? `<span class="chart-key"><span><i style="background:var(--good)"></i>win</span><span><i style="background:var(--bad)"></i>loss</span></span>` : ""}</div>`;
+  <div class="chart-foot muted small">Latest ${num(last[1])} ${esc(unit)} · low ${num(Math.min(...fpts.map((p) => p[1])))} · high ${num(Math.max(...fpts.map((p) => p[1])))}${dots ? `<span class="chart-key"><span><i style="background:var(--good)"></i>win</span><span><i style="background:var(--bad)"></i>loss</span></span>` : ""}</div>`;
 }
 
 // Hover crosshair: snaps to the nearest reading and shows its time and value.
@@ -1020,26 +1021,44 @@ function seriesForRange(pts) {
 }
 
 // "+25 elo gained today", from the first to the last reading in the range.
-function gainLine(pts, unit) {
+function gainLine(pts, unit, note = "") {
   const v = pts.filter((p) => p[1] > 0);
   if (v.length < 2) return "";
   const d = v[v.length - 1][1] - v[0][1];
   const word = { today: "today", "7": "in the last 7 days", "30": "in the last 30 days", all: "overall" }[statsRange];
-  return `<div class="gain ${d > 0 ? "pos" : d < 0 ? "neg" : ""}"><b>${d > 0 ? "+" : ""}${num(d)}</b> ${esc(unit)} ${esc(word)}</div>`;
+  return `<div class="gain ${d > 0 ? "pos" : d < 0 ? "neg" : ""}"><b>${d > 0 ? "+" : ""}${num(d)}</b> ${esc(unit)} ${esc(word)}${note ? ` <span class="muted small">${esc(note)}</span>` : ""}</div>`;
+}
+
+// The elo series has a 0 marker wherever a ranked season reset breaks the line. This is everything after the last one.
+function thisSeason(pts) {
+  let i = pts.length;
+  while (i > 0 && pts[i - 1][1] > 0) i--;
+  return pts.slice(i);
 }
 
 function chartSection() {
   const r = statsData;
   const elo = statsMetric === "elo";
-  const ranged = seriesForRange(elo ? r.series.elo : r.series.trophies);
+  let ranged = seriesForRange(elo ? r.series.elo : r.series.trophies);
+  // A season reset moves everyone's elo, so a range that spans one must not count the drop as a loss or
+  // take last season's final elo as the "high". Numbers (and, except for All time, the line) cover this season only.
+  let scope = null, resetNote = "";
+  if (elo) {
+    const cur = thisSeason(ranged);
+    if (cur.length && cur.length < ranged.filter((p) => p[1] > 0).length) {
+      scope = cur;
+      resetNote = "this season only";
+      if (statsRange !== "all") ranged = cur;
+    }
+  }
   const seg = (cls, key, cur, items) => `<div class="seg" data-seg="${key}">${items.map(([v, l]) =>
     `<button class="${cur === v ? "on" : ""}" data-v="${v}">${l}</button>`).join("")}</div>`;
   return `<div class="section-head"><h2>${elo ? "Ranked elo" : "Trophies"}</h2><div class="seg-row">
       ${seg("", "metric", statsMetric, [["trophies", "Trophies"], ["elo", "Ranked elo"]])}
       ${seg("", "range", statsRange, [["today", "Today"], ["7", "7 days"], ["30", "30 days"], ["all", "All time"]])}</div></div>
     ${elo ? seasonBanner(r.seasons && r.seasons[0]) : ""}
-    <div class="card">${gainLine(ranged, elo ? "elo" : "trophies")}${lineChart(ranged,
-      elo ? { color: "var(--elo)", unit: "elo", metric: "elo" } : { color: "var(--accent)", unit: "trophies", metric: "trophies" })}</div>`;
+    <div class="card">${gainLine(scope || ranged, elo ? "elo" : "trophies", resetNote)}${lineChart(ranged,
+      elo ? { color: "var(--elo)", unit: "elo", metric: "elo", foot: scope } : { color: "var(--accent)", unit: "trophies", metric: "trophies" })}${scope ? `<div class="muted small">A new ranked season began ${esc(fmtDay(scope[0][0]))}. The change and low/high above only count this season.</div>` : ""}</div>`;
 }
 
 // Season-wide elo, whatever range the graph is showing: peak, now, how far below the peak, and totals.
@@ -1048,13 +1067,13 @@ function seasonBanner(sn) {
   const fromPeak = sn.end_elo - sn.peak, net = sn.end_elo - sn.start_elo;
   const tile = (k, v, sub, cls = "") => `<div class="day-tile"><div class="k">${k}</div><div class="v ${cls}">${v}</div><div class="s muted small">${sub || "&nbsp;"}</div></div>`;
   const partial = sn.wins + sn.losses > sn.elo_games ? `from ${sn.elo_games} of ${sn.wins + sn.losses} ranked games` : `${sn.elo_games} ranked game${sn.elo_games === 1 ? "" : "s"}`;
-  return `<div class="card season-banner"><div class="muted small" style="margin-bottom:8px">Season ${esc(sn.id)} · ${esc(fmtDay(sn.from))} – ${esc(fmtDay(sn.to))} (not affected by the range above)</div>
+  return `<div class="card season-banner"><div class="muted small" style="margin-bottom:8px">Season ${esc(sn.id)} · ${esc(fmtDay(sn.from))} – ${esc(fmtDay(sn.to))} (not affected by the range above). Won and lost add up each game's change, so they aren't your net (${partial}).</div>
     <div class="day-tiles">
       ${tile("Season peak", num(sn.peak), `now ${num(sn.end_elo)}`)}
       ${tile("From the peak", fromPeak === 0 ? "at peak" : signed(fromPeak), "now vs season high", tone(fromPeak))}
       ${tile("Since season start", signed(net), `started at ${num(sn.start_elo)}`, tone(net))}
-      ${tile("Elo won", sn.elo_games ? "+" + num(sn.gained) : "—", partial, sn.elo_games ? "pos" : "")}
-      ${tile("Elo lost", sn.elo_games ? "−" + num(sn.lost) : "—", partial, sn.elo_games ? "neg" : "")}
+      ${tile("Won in games", sn.elo_games ? "+" + num(sn.gained) : "—", "added up over wins", sn.elo_games ? "pos" : "")}
+      ${tile("Lost in games", sn.elo_games ? "−" + num(sn.lost) : "—", "added up over losses", sn.elo_games ? "neg" : "")}
     </div></div>`;
 }
 
