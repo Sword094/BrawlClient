@@ -1,6 +1,11 @@
-## What's new in 0.2.9
+## What's new in 0.3.0
 
-**Fixes around ranked season resets**
-- The elo graph's change and low/high no longer count the reset. Before, a 7 day, 30 day or all time view that crossed a new season counted the drop as a loss and showed last season's final elo as the high. Those numbers now cover the current season only, and the graph says so.
-- A reset can no longer be counted as the result of a single game, and the season banner ignores a leftover reading from the old season when working out the new season's start and peak.
-- The banner's "Won" and "Lost" tiles are now labelled "Won in games" and "Lost in games", with a note that they add up each game's change and aren't your net.
+**Ranked Picks, reworked**
+- **Steadier picks.** Each refresh now adds to the sample (battles already counted are skipped) instead of replacing it, so the results grow more reliable over time instead of reshuffling. Your existing sample is kept as the first batch.
+- **Smarter ranking.** A brawler's results on a map are now pulled toward how it does across that whole mode, and how its role does there, and picks are ranked cautiously. A lucky 13-0 no longer beats a brawler that has proved itself over hundreds of rounds.
+- **Kit fit.** Each brawler's role (Tank, Controller, Marksman and so on) is compared with what the mode needs, so a brawler that makes no sense for the mode can't win on noise.
+- **Usage counts.** How often top players pick a brawler on that map nudges the ranking.
+- **You can see why.** Picks show their role and fit, how much they're played, and a "limited data" tag when the sample is thin. Hover a pick for the full reasoning. The table also shows the brawler's win rate across the whole mode.
+
+**Fix**
+- Clicking a day on the activity map no longer shares a style name with the pick cards.

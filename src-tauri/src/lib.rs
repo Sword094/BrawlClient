@@ -2,6 +2,7 @@ mod api;
 mod backup;
 mod goals;
 mod insights;
+mod kits;
 mod history;
 mod icons;
 mod matches;
@@ -212,6 +213,9 @@ async fn get_meta(app: AppHandle, ranked_only: bool, source: String, refresh: bo
         "players": m.players,
         "rounds": m.rounds,
         "tier_players": m.tier_players,
+        "batches": m.batch_count,
+        "oldest": m.oldest,
+        "added": m.added,
         "maps": meta::maps(&m, ranked_only, &tiers),
         "brawlers": meta::brawlers(&m).into_iter().map(|(id, name)| json!({"id": id, "name": name})).collect::<Vec<_>>(),
     }))
@@ -251,8 +255,11 @@ async fn recommend(
         None
     };
     let banned: std::collections::HashSet<i64> = banned.into_iter().collect();
-    let recs = meta::recommend(&m, &map, ranked_only, &meta::tiers_for(&source), &banned, owned.as_ref());
-    Ok(json!({ "recs": recs }))
+    let classes = kits::get(&app).await;
+    let tiers = meta::tiers_for(&source);
+    let recs = meta::recommend_with(&m, &map, ranked_only, &tiers, &banned, owned.as_ref(), &classes);
+    let mode = meta::maps(&m, ranked_only, &tiers).into_iter().find(|x| x.map == map).map(|x| x.mode).unwrap_or_default();
+    Ok(json!({ "recs": recs, "mode": mode, "kits_known": !classes.is_empty() }))
 }
 
 /// What the Presence page shows: the rotation, the placeholder values and which view is pinned.

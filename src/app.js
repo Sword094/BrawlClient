@@ -966,7 +966,7 @@ function heatMap(days, mode) {
         tip = `${label}: ${c.n} battle${c.n === 1 ? "" : "s"} · ${c.w}W–${c.l}L · ${rate}% win rate`;
       }
       const dk = dayKey(day);
-      cells += `<i class="hm pick${dk === dayKey(selDay) ? " sel" : ""}" style="${style}" data-day="${dk}" data-tip="${esc(tip + " (click for the day's summary)")}"></i>`;
+      cells += `<i class="hm dpick${dk === dayKey(selDay) ? " sel" : ""}" style="${style}" data-day="${dk}" data-tip="${esc(tip + " (click for the day's summary)")}"></i>`;
     }
     const m = new Date(start.getTime() + w * 7 * DAY * 1000).getMonth();
     months += `<span>${m !== lastMonth ? new Date(start.getTime() + w * 7 * DAY * 1000).toLocaleDateString([], { month: "short" }) : ""}</span>`;
@@ -1258,8 +1258,8 @@ function pickDay(d) {
   selDay = startOfDay(d);
   const el = document.querySelector(".st-day");
   if (el) { el.innerHTML = daySection(); loadDay(); }
-  document.querySelectorAll(".hm.pick.sel").forEach((c) => c.classList.remove("sel"));
-  document.querySelector(`.hm.pick[data-day="${dayKey(selDay)}"]`)?.classList.add("sel");
+  document.querySelectorAll(".hm.dpick.sel").forEach((c) => c.classList.remove("sel"));
+  document.querySelector(`.hm.dpick[data-day="${dayKey(selDay)}"]`)?.classList.add("sel");
 }
 $("stats-body").addEventListener("change", (ev) => {
   if (ev.target.id !== "day-pick" || !ev.target.value) return;
@@ -1275,7 +1275,7 @@ $("stats-body").addEventListener("click", async (ev) => {
     pickDay(d > new Date() ? new Date() : d);
     return;
   }
-  const cell = ev.target.closest(".hm.pick");
+  const cell = ev.target.closest(".hm.dpick");
   if (cell) {
     const [y, m, d] = cell.dataset.day.split("-").map(Number);
     pickDay(new Date(y, m - 1, d));
@@ -1419,7 +1419,7 @@ async function loadMeta(refresh) {
     recInfo.brawlers.filter((b) => !recBans.includes(b.id)).map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join("");
   const when = recInfo.fetched_at ? ago(recInfo.fetched_at * 1000) : "never";
   $("rec-status").textContent = recInfo.fetched_at
-    ? `Sample: ${recInfo.players} Diamond+ players (${Object.entries(recInfo.tier_players || {}).map(([t, n]) => `${n} ${t}`).join(", ") || "none"}), ${num(recInfo.rounds)} rounds, updated ${when}.`
+    ? `Sample: about ${recInfo.players} Diamond+ players (${Object.entries(recInfo.tier_players || {}).map(([t, n]) => `${n} ${t}`).join(", ") || "none"}), ${num(recInfo.rounds)} rounds from ${recInfo.batches || 1} refresh${(recInfo.batches || 1) === 1 ? "" : "es"}, last updated ${when}. Each refresh adds to the sample.`
     : "No sample yet. Click “Refresh sample” (takes a few minutes).";
   renderBans();
   renderMapBox();
@@ -1448,15 +1448,19 @@ async function runRecommend() {
   try {
     const r = await invoke("recommend", { map: recMap, rankedOnly: $("rec-ranked").checked, source: recSource, banned: recBans, onlyOwned: $("rec-owned").checked });
     if (token !== recToken) return;
-    renderTop5(r.recs);
+    renderTop5(r.recs, r.mode);
     if (!r.recs.length) { box.innerHTML = `<div class="empty">Not enough data for this map with these filters. Try unticking “Ranked games only”, or refresh the sample.</div>`; return; }
-    box.innerHTML = `<div class="table-wrap"><table><thead><tr><th>#</th><th>Brawler</th><th>Win rate</th><th>Rounds</th><th>Your power</th></tr></thead><tbody>${
-      r.recs.slice(0, 15).map((x, i) => `<tr class="${i === 0 ? "top-pick" : ""}"><td class="num">${i + 1}</td>
-        <td class="name">${brIcon(x.id, x.brawler, 26)}${esc(x.brawler)}</td>
+    const md = modeName(r.mode || "");
+    box.innerHTML = `<div class="table-wrap"><table><thead><tr><th>#</th><th>Brawler</th><th>Role</th><th>Win rate here</th><th>In ${esc(md || "this mode")}</th><th>Used</th><th>Rounds</th><th>Your power</th></tr></thead><tbody>${
+      r.recs.slice(0, 15).map((x, i) => `<tr class="${i === 0 ? "top-pick" : ""}" title="${esc(whyPick(x, md))}"><td class="num">${i + 1}</td>
+        <td class="name">${brIcon(x.id, x.brawler, 26)}${esc(x.brawler)}${x.confidence === "low" ? ` <span class="pill dim" title="Few rounds on this map">limited data</span>` : ""}</td>
+        <td>${fitChip(x)}</td>
         <td class="num"><span class="bar"><i style="width:${Math.round(x.win_rate * 100)}%"></i></span> ${(x.win_rate * 100).toFixed(1)}%</td>
+        <td class="num">${x.mode_win_rate != null ? (x.mode_win_rate * 100).toFixed(1) + "%" : "—"}</td>
+        <td class="num">${(x.usage * 100).toFixed(0)}%<span class="muted small"> #${x.usage_rank}</span></td>
         <td class="num">${num(x.games)}</td><td class="num">${x.power != null ? x.power : "—"}</td></tr>`).join("")
     }</tbody></table></div>
-    <p class="muted small">Ordered by a smoothed win rate, so a brawler with few rounds can't outrank a well-tested one. “Win rate” is the raw figure.</p>`;
+    <p class="muted small">Ranked by a cautious estimate, not the raw win rate. Each brawler's results on this map are pulled toward how it does across all ${esc(md || "same-mode")} maps and how its role does there, then nudged by how often top players pick it here and how well its kit suits the mode. Hover a row for the reasoning. ${r.kits_known ? "" : "<b>Role data couldn't be loaded</b> (it needs internet once), so kit fit is skipped for now."}</p>`;
   } catch (e) {
     if (token !== recToken) return;
     box.innerHTML = "";
@@ -1487,17 +1491,34 @@ async function runTierList() {
 }
 $("tl-mode").onchange = (ev) => { tlMode = ev.target.value; runTierList(); };
 
-function renderTop5(recs) {
-  const top = recs.slice(0, 5);
+const CLASS_NAMES = { damage: "Damage dealer" };
+const fitText = (f) => (f >= 0.5 ? "great fit" : f >= 0.2 ? "good fit" : f > -0.2 ? "neutral" : f > -0.5 ? "weak fit" : "poor fit");
+const fitClass = (f) => (f >= 0.5 ? "great" : f >= 0.2 ? "good" : f > -0.2 ? "mid" : f > -0.5 ? "weak" : "poor");
+const titleCase = (t) => CLASS_NAMES[t] || t.charAt(0).toUpperCase() + t.slice(1);
+const fitChip = (x) => (x.class ? `<span class="fit ${fitClass(x.fit)}">${esc(titleCase(x.class))} · ${fitText(x.fit)}</span>` : `<span class="muted small">—</span>`);
+
+// The reasoning behind one pick, for tooltips.
+function whyPick(x, mode) {
+  const bits = [`${(x.win_rate * 100).toFixed(0)}% on this map over ${x.games} rounds (estimated ${(x.score * 100).toFixed(0)}% once thin samples are smoothed)`];
+  if (x.mode_win_rate != null) bits.push(`${(x.mode_win_rate * 100).toFixed(0)}% across ${mode || "this mode"} over ${num(x.mode_games)} rounds`);
+  bits.push(`in ${(x.usage * 100).toFixed(0)}% of rounds here (#${x.usage_rank} most played)`);
+  if (x.class) bits.push(`${titleCase(x.class)}: ${fitText(x.fit)} for ${mode || "this mode"}`);
+  if (x.power != null) bits.push(`your copy is power ${x.power}`);
+  return bits.join(" · ");
+}
+
+function renderTop5(recs, mode) {
+  const top = recs.slice(0, 5), md = modeName(mode || "");
   $("rec-top5").innerHTML = top.length
-    ? `<div class="section-head"><h2>Top ${top.length} picks</h2><span class="muted small">Win rate, sample size and your power level, with bans removed</span></div>
+    ? `<div class="section-head"><h2>Top ${top.length} picks</h2><span class="muted small">Win rate, how much it's played, and how well the kit suits ${esc(md || "the mode")}, with bans removed</span></div>
        <div class="top5">${top.map((x, i) => `
-        <div class="pick ${i === 0 ? "first" : ""}">
+        <div class="pick ${i === 0 ? "first" : ""}" title="${esc(whyPick(x, md))}">
           <div class="rank">#${i + 1}</div>
           ${brIcon(x.id, x.brawler, 56)}
           <div class="pn">${esc(x.brawler)}</div>
           <div class="wr">${(x.win_rate * 100).toFixed(0)}% <span class="muted small">win</span></div>
           <div class="muted small">${num(x.games)} rounds${x.power != null ? ` · power ${x.power}` : ""}</div>
+          <div class="pick-tags">${fitChip(x)}<span class="muted small">#${x.usage_rank} most played</span>${x.confidence === "low" ? `<span class="pill dim">limited data</span>` : ""}</div>
         </div>`).join("")}</div>`
     : "";
 }
@@ -1533,7 +1554,11 @@ $("rec-refresh").onclick = async () => {
   const btn = $("rec-refresh");
   btn.disabled = true;
   $("rec-progress").textContent = "Starting…";
-  try { await loadMeta(true); $("rec-progress").textContent = "Done."; await runRecommend(); }
+  try {
+    await loadMeta(true);
+    $("rec-progress").textContent = recInfo.added ? `Done. Added ${num(recInfo.added)} new rounds.` : "Done. No new battles since the last refresh.";
+    await runRecommend();
+  }
   catch (e) { $("rec-progress").textContent = errText(e); }
   btn.disabled = false;
 };

@@ -755,8 +755,8 @@ html[data-density="compact"] .modal { padding: 16px 18px; }
 .day-nav { align-items: center; gap: 6px; }
 .day-nav input[type="date"] { padding: 5px 8px; }
 .btn.small { padding: 4px 10px; min-width: 32px; }
-.hm.pick { cursor: pointer; }
-.hm.pick:hover { outline: 2px solid var(--text); outline-offset: -1px; }
+.hm.dpick { cursor: pointer; }
+.hm.dpick:hover { outline: 2px solid var(--text); outline-offset: -1px; }
 .hm.sel { outline: 2px solid var(--accent); outline-offset: 1px; }
 .day-sentence { font-size: 15px; line-height: 1.5; margin-bottom: 14px; }
 .day-sentence .pos, .day-tile .v.pos { color: var(--good); }
@@ -781,3 +781,13 @@ html[data-density="compact"] .modal { padding: 16px 18px; }
 .tilt-note { background: color-mix(in srgb, var(--bad) 14%, var(--panel)); border: var(--bw) var(--bs) color-mix(in srgb, var(--bad) 45%, var(--border)); border-radius: var(--r-md); padding: 10px 12px; margin-bottom: 12px; font-size: 13px; line-height: 1.45; }
 .ins-gap { margin-top: 22px; }
 .season-banner { margin-bottom: 12px; }
+
+/* ============================ ranked picks: reasoning ============================ */
+.pick-tags { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 8px; }
+.fit { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: var(--r-pill); border: var(--bw) var(--bs) var(--border); white-space: nowrap; }
+.fit.great { background: color-mix(in srgb, var(--good) 22%, transparent); color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); }
+.fit.good { background: color-mix(in srgb, var(--good) 10%, transparent); color: var(--good); border-color: transparent; }
+.fit.mid { color: var(--muted); }
+.fit.weak { background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad-soft, var(--bad)); border-color: transparent; }
+.fit.poor { background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad-soft, var(--bad)); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
+.pill.dim { background: var(--panel-2); color: var(--muted); border: var(--bw) var(--bs) var(--border); }

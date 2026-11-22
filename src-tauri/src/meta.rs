@@ -2,8 +2,15 @@
 //!
 //! The official API has no meta data, no bans and no map pool, so the "meta" is sampled:
 //! the battle logs of the top global players are read and every 3v3 round is counted per
-//! (map, brawler). Win rate is smoothed so a brawler seen 6 times can't beat one seen 400 times.
-//! Bans are entered by hand in the UI.
+//! (map, brawler). Every refresh is kept as its own batch and the batches are added together
+//! (battles seen twice are skipped), so the sample grows and the picks settle down instead of
+//! reshuffling with each new draw. Bans are entered by hand in the UI.
+//!
+//! A pick's score is built in layers, each one pulling a thin sample toward something better known:
+//! the map result -> the brawler's result across the whole mode -> its class's result in that mode.
+//! Then it gets a small nudge for how much top players pick it on that map and for how well its
+//! kit suits the mode (`kits::fit`), and is ranked by a cautious estimate (a lower bound), so a
+//! lucky 13-0 can't beat a brawler that has proved itself over hundreds of rounds.
 
 use crate::{api, store, tracker::unix_now};
 use serde::{Deserialize, Serialize};
@@ -13,9 +20,25 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter};
 
 const FILE: &str = "meta.json";
-/// Smoothing: pretend every brawler starts with this many wins and losses.
+/// Smoothing for the overall list: pretend every brawler starts with this many wins and losses.
 const PRIOR: f64 = 8.0;
-const MIN_GAMES: u32 = 5;
+/// Smallest number of rounds on a map before a brawler is considered for it.
+const MIN_MAP_GAMES: u32 = 4;
+/// How many rounds of evidence each layer counts as being worth (see the module notes).
+const K_CLASS: f64 = 200.0;
+const K_MODE: f64 = 40.0;
+const K_MAP: f64 = 50.0;
+/// Win-rate points a perfect (+1) kit fit moves the starting guess and the final score.
+const KIT_PRIOR: f64 = 0.02;
+const KIT_FINAL: f64 = 0.012;
+/// Points per doubling-ish of usage (natural log of pick rate vs. average), capped.
+const USAGE_PTS: f64 = 0.01;
+const USAGE_CAP: f64 = 0.03;
+/// Standard deviations subtracted to rank cautiously.
+const CAUTION: f64 = 1.0;
+/// Newest batches kept, and how old a batch may get before the next refresh drops it.
+const MAX_BATCHES: usize = 6;
+const MAX_BATCH_AGE: i64 = 28 * 24 * 3600;
 /// Rounds needed before a brawler shows up in the overall ranking.
 const MIN_OVERALL: u32 = 30;
 
@@ -69,6 +92,13 @@ pub struct Meta {
     /// Players sampled per tier.
     pub tier_players: HashMap<String, u32>,
     pub cells: Vec<Cell>,
+    /// Hashes of the battles this batch counted, so later refreshes don't count them again.
+    pub seen: Vec<u64>,
+    /// Only on the combined view: how many batches it adds up, the oldest one's time, and how many
+    /// rounds the latest refresh added.
+    pub batch_count: u32,
+    pub oldest: i64,
+    pub added: u32,
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -82,25 +112,55 @@ pub struct MapInfo {
 #[derive(Serialize, Debug)]
 pub struct Rec {
     pub id: i64,
-    /// Final ranking value: smoothed win rate nudged by how strong the player's copy is.
+    /// What the list is ordered by: a cautious score, nudged by usage, kit fit and your power level.
     pub pick: f64,
     pub brawler: String,
     pub games: u32,
+    /// The raw win rate on this map.
     pub win_rate: f64,
+    /// The estimated win rate after pulling thin samples toward better-known ones.
     pub score: f64,
     pub power: Option<i64>,
+    /// The brawler's class (None if role data isn't available) and how well it suits the mode, -1..1.
+    pub class: Option<String>,
+    pub fit: f64,
+    /// The brawler's rounds and raw win rate across every map of this mode.
+    pub mode_games: u32,
+    pub mode_win_rate: Option<f64>,
+    /// Share of this map's rounds it appears in, and its rank by that.
+    pub usage: f64,
+    pub usage_rank: u32,
+    /// "high", "medium" or "low", by how many rounds the map figure rests on.
+    pub confidence: &'static str,
 }
 
 /* ------------------------------ aggregation ------------------------------ */
 
 #[derive(Default)]
 pub struct Collector {
-    seen: HashSet<String>,
+    seen: HashSet<u64>,
+    /// Hashes added by this run only (what gets stored with the batch).
+    fresh: Vec<u64>,
     cells: HashMap<(String, String, bool, i64), Cell>,
     pub rounds: u32,
 }
 
+/// Small stable hash (FNV-1a), so stored battle keys stay valid across app versions.
+fn fnv(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
+
 impl Collector {
+    /// Starts with battles that earlier refreshes already counted, which will be skipped.
+    pub fn with_seen(seen: HashSet<u64>) -> Self {
+        Collector { seen, ..Default::default() }
+    }
+
     /// Adds every 3v3 round of one player's battle log. Rounds already counted from another
     /// player's log (same time, event and players) are skipped.
     ///
@@ -131,9 +191,11 @@ impl Collector {
                 it["event"]["id"].as_i64().unwrap_or(0),
                 tags.join(",")
             );
-            if !self.seen.insert(key) {
+            let h = fnv(&key);
+            if !self.seen.insert(h) {
                 continue;
             }
+            self.fresh.push(h);
             let owner_team = teams.iter().position(|t| {
                 t.as_array()
                     .map_or(false, |a| a.iter().any(|p| api::normalize_tag(p["tag"].as_str().unwrap_or("")) == owner))
@@ -187,8 +249,56 @@ impl Collector {
             rounds: self.rounds,
             tier_players,
             cells: self.cells.into_values().collect(),
+            seen: self.fresh,
+            ..Default::default()
         }
     }
+}
+
+/* ------------------------------- batches --------------------------------- */
+
+/// Adds several refreshes together into one view. Players are counted as the most seen in any one
+/// batch per tier (the same top players come up each time, so summing would overstate them).
+pub fn merge(batches: &[Meta]) -> Meta {
+    let mut cells: HashMap<(String, String, bool, i64), Cell> = HashMap::new();
+    let mut tier_players: HashMap<String, u32> = HashMap::new();
+    let mut ordered: Vec<&Meta> = batches.iter().collect();
+    ordered.sort_by_key(|b| b.fetched_at); // oldest first, so the newest names and event ids win
+    let mut rounds = 0;
+    for b in &ordered {
+        rounds += b.rounds;
+        for (t, n) in &b.tier_players {
+            let e = tier_players.entry(t.clone()).or_insert(0);
+            *e = (*e).max(*n);
+        }
+        for c in &b.cells {
+            let e = cells.entry((c.map.clone(), c.tier.clone(), c.ranked, c.id)).or_insert_with(|| Cell { wins: 0, games: 0, ..c.clone() });
+            e.wins += c.wins;
+            e.games += c.games;
+            e.mode = c.mode.clone();
+            e.event_id = c.event_id;
+            e.brawler = c.brawler.clone();
+        }
+    }
+    Meta {
+        fetched_at: ordered.last().map_or(0, |b| b.fetched_at),
+        players: tier_players.values().sum(),
+        rounds,
+        tier_players,
+        cells: cells.into_values().collect(),
+        batch_count: batches.len() as u32,
+        oldest: ordered.first().map_or(0, |b| b.fetched_at),
+        ..Default::default()
+    }
+}
+
+/// Drops batches that are too old, then keeps only the newest few.
+pub fn prune(mut batches: Vec<Meta>, now: i64) -> Vec<Meta> {
+    batches.retain(|b| now - b.fetched_at <= MAX_BATCH_AGE);
+    batches.sort_by_key(|b| b.fetched_at);
+    let extra = batches.len().saturating_sub(MAX_BATCHES);
+    batches.drain(..extra);
+    batches
 }
 
 /* ------------------------------- queries --------------------------------- */
@@ -221,7 +331,7 @@ pub fn brawlers(m: &Meta) -> Vec<(i64, String)> {
 }
 
 /// Best picks for `map`, skipping banned brawlers. `owned` (id -> power) restricts to brawlers
-/// the player has.
+/// the player has. Kit fit is left neutral; see `recommend_with` to include it.
 pub fn recommend(
     m: &Meta,
     map: &str,
@@ -230,32 +340,108 @@ pub fn recommend(
     banned: &HashSet<i64>,
     owned: Option<&HashMap<i64, i64>>,
 ) -> Vec<Rec> {
-    let mut agg: HashMap<i64, (String, u32, u32)> = HashMap::new();
+    recommend_with(m, map, ranked_only, tiers, banned, owned, &HashMap::new())
+}
+
+/// Spread of a win-rate estimate that rests on `n` rounds' worth of evidence.
+fn spread(p: f64, n: f64) -> f64 {
+    (p * (1.0 - p) / (n + 1.0)).sqrt()
+}
+
+/// As `recommend`, with each brawler's class (`classes`: id -> class) for kit fit.
+pub fn recommend_with(
+    m: &Meta,
+    map: &str,
+    ranked_only: bool,
+    tiers: &HashSet<String>,
+    banned: &HashSet<i64>,
+    owned: Option<&HashMap<i64, i64>>,
+    classes: &HashMap<i64, String>,
+) -> Vec<Rec> {
+    // This map: brawler -> (name, wins, games).
+    let mut here: HashMap<i64, (String, u32, u32)> = HashMap::new();
+    let mut mode = String::new();
     for c in pool(m, ranked_only, tiers).filter(|c| c.map == map) {
-        let e = agg.entry(c.id).or_insert_with(|| (c.brawler.clone(), 0, 0));
+        let e = here.entry(c.id).or_insert_with(|| (c.brawler.clone(), 0, 0));
         e.1 += c.wins;
         e.2 += c.games;
+        if mode.is_empty() {
+            mode = c.mode.clone();
+        }
     }
-    let mut out: Vec<Rec> = agg
+    if here.is_empty() {
+        return Vec::new();
+    }
+
+    // The same mode across all its maps: per brawler, and per class.
+    let mut in_mode: HashMap<i64, (u32, u32)> = HashMap::new();
+    let mut by_class: HashMap<&str, (u32, u32)> = HashMap::new();
+    if !mode.is_empty() {
+        for c in pool(m, ranked_only, tiers).filter(|c| c.mode == mode) {
+            let e = in_mode.entry(c.id).or_default();
+            e.0 += c.wins;
+            e.1 += c.games;
+            if let Some(cl) = classes.get(&c.id) {
+                let e = by_class.entry(cl.as_str()).or_default();
+                e.0 += c.wins;
+                e.1 += c.games;
+            }
+        }
+    }
+
+    // Usage rank on this map (most rounds first).
+    let mut by_use: Vec<(i64, u32)> = here.iter().map(|(id, v)| (*id, v.2)).collect();
+    by_use.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    let rank_of: HashMap<i64, u32> = by_use.iter().enumerate().map(|(i, (id, _))| (*id, i as u32 + 1)).collect();
+    let total: f64 = here.values().map(|v| v.2 as f64).sum();
+    let distinct = here.len() as f64;
+
+    let mut out: Vec<Rec> = here
         .into_iter()
-        .filter(|(id, (_, _, g))| *g >= MIN_GAMES && !banned.contains(id) && owned.map_or(true, |o| o.contains_key(id)))
+        .filter(|(id, (_, _, g))| *g >= MIN_MAP_GAMES && !banned.contains(id) && owned.map_or(true, |o| o.contains_key(id)))
         .map(|(id, (name, w, g))| {
-            let score = (w as f64 + PRIOR) / (g as f64 + 2.0 * PRIOR);
+            let class = classes.get(&id).cloned();
+            let fit = class.as_deref().map_or(0.0, |c| crate::kits::fit(&mode, c));
+            // Layer 1: how this brawler's class does in the mode, nudged by how well it suits it.
+            let class_mean = class
+                .as_deref()
+                .and_then(|c| by_class.get(c))
+                .map_or(0.5, |(cw, cg)| (*cw as f64 + K_CLASS * 0.5) / (*cg as f64 + K_CLASS));
+            let prior = (class_mean + KIT_PRIOR * fit).clamp(0.35, 0.65);
+            // Layer 2: the brawler across the mode, leaving out this map's own rounds.
+            let (mw, mg) = in_mode.get(&id).copied().unwrap_or((0, 0));
+            let (ow, og) = (mw.saturating_sub(w) as f64, mg.saturating_sub(g) as f64);
+            let mode_mean = (ow + K_MODE * prior) / (og + K_MODE);
+            // Layer 3: this map.
+            let (wf, gf) = (w as f64, g as f64);
+            let score = (wf + K_MAP * mode_mean) / (gf + K_MAP);
+
+            let idx = if total > 0.0 { gf / total * distinct } else { 1.0 };
+            let usage = (USAGE_PTS * idx.max(1e-6).ln()).clamp(-USAGE_CAP, USAGE_CAP) * (gf / (gf + 20.0));
+            let careful = score + usage + KIT_FINAL * fit - CAUTION * spread(score, gf + K_MAP);
+
             let power = owned.and_then(|o| o.get(&id).copied());
             // Power 11 keeps the full score; a power-6 brawler loses about 9%.
             let factor = power.map_or(1.0, |p| 0.8 + 0.2 * (p.clamp(1, 11) as f64 / 11.0));
             Rec {
-            id,
-            pick: score * factor,
-            brawler: name,
-            games: g,
-            win_rate: w as f64 / g as f64,
-            score,
-            power,
+                id,
+                pick: careful * factor,
+                brawler: name,
+                games: g,
+                win_rate: wf / gf,
+                score,
+                power,
+                class,
+                fit,
+                mode_games: mg,
+                mode_win_rate: (mg > 0).then(|| mw as f64 / mg as f64),
+                usage: if total > 0.0 { gf / total } else { 0.0 },
+                usage_rank: rank_of.get(&id).copied().unwrap_or(0),
+                confidence: if g >= 60 { "high" } else if g >= 20 { "medium" } else { "low" },
             }
         })
         .collect();
-    out.sort_by(|a, b| b.pick.partial_cmp(&a.pick).unwrap_or(std::cmp::Ordering::Equal).then(b.games.cmp(&a.games)));
+    out.sort_by(|a, b| b.pick.partial_cmp(&a.pick).unwrap_or(std::cmp::Ordering::Equal).then(b.games.cmp(&a.games)).then(a.id.cmp(&b.id)));
     out
 }
 
@@ -316,9 +502,31 @@ pub fn overall(m: &Meta, ranked_only: bool, tiers: &HashSet<String>, mode: Optio
 
 /* --------------------------------- I/O ----------------------------------- */
 
+/// What is stored on disk: the batches. Files from before batches existed hold one sample in the
+/// top-level fields, which becomes the first batch.
+#[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
+struct Stored {
+    batches: Vec<Meta>,
+    #[serde(flatten)]
+    legacy: Meta,
+}
+
+fn load_batches(app: &AppHandle) -> Vec<Meta> {
+    let st: Stored = {
+        let _g = store::lock();
+        store::load(app, FILE)
+    };
+    let mut b = st.batches;
+    if b.is_empty() && !st.legacy.cells.is_empty() {
+        b.push(st.legacy);
+    }
+    b
+}
+
+/// Everything sampled so far, added together.
 pub fn load(app: &AppHandle) -> Meta {
-    let _g = store::lock();
-    store::load(app, FILE)
+    merge(&load_batches(app))
 }
 
 /// Finds Diamond-and-above players and reads their battle logs.
@@ -377,7 +585,9 @@ async fn refresh_inner(app: &AppHandle, api_key: &str, my_tag: &str, target: u32
         return Err("Couldn't find any players to start from.".into());
     }
 
-    let mut col = Collector::default();
+    // Earlier refreshes stay (newest few); battles they counted are skipped this time.
+    let kept = prune(load_batches(app), unix_now());
+    let mut col = Collector::with_seen(kept.iter().flat_map(|b| b.seen.iter().copied()).collect());
     let mut visited: HashSet<String> = HashSet::new();
     let mut tier_players: HashMap<String, u32> = HashMap::new();
     let (mut done, mut looked, mut hard_fails) = (0u32, 0u32, 0u32);
@@ -427,12 +637,15 @@ async fn refresh_inner(app: &AppHandle, api_key: &str, my_tag: &str, target: u32
     if done == 0 {
         return Err("No Diamond-or-higher players were found. Check your API key and try again.".into());
     }
-    let meta = col.finish(tier_players);
+    let batch = col.finish(tier_players);
+    let added = batch.rounds;
+    let mut all = kept;
+    all.push(batch);
     {
         let _g = store::lock();
-        store::save(app, FILE, &meta)?;
+        store::save(app, FILE, &Stored { batches: all.clone(), legacy: Meta::default() })?;
     }
-    Ok(meta)
+    Ok(Meta { added, ..merge(&all) })
 }
 
 #[cfg(test)]
@@ -477,12 +690,12 @@ mod tests {
     }
 
     #[test]
-    fn recommends_by_smoothed_win_rate_and_respects_bans_and_ownership() {
+    fn recommends_cautiously_and_respects_bans_and_ownership() {
         let mk = |id, name: &str, wins, games| Cell { map: "Gem Fort".into(), mode: "gemGrab".into(), ranked: true, tier: "mythic".into(), event_id: 1, id, brawler: name.into(), wins, games };
         let m = Meta { cells: vec![mk(1, "A", 6, 6), mk(2, "B", 140, 200), mk(3, "C", 90, 200), mk(4, "D", 1, 2)], ..Default::default() };
         let r = recommend(&m, "Gem Fort", true, &tiers_for("diamond+"), &HashSet::new(), None);
-        // 6/6 smoothed is (6+5)/(6+10)=0.69; 140/200 smoothed is 0.69 too but with far more games.
-        assert_eq!(r.iter().map(|x| x.id).collect::<Vec<_>>(), vec![2, 1, 3]); // id 4 has < MIN_GAMES
+        // A perfect 6/6 can't beat 140/200: the thin sample is pulled toward 50% and ranked cautiously.
+        assert_eq!(r.iter().map(|x| x.id).collect::<Vec<_>>(), vec![2, 1, 3]); // id 4 has < MIN_MAP_GAMES
         let banned: HashSet<i64> = [2].into();
         assert_eq!(recommend(&m, "Gem Fort", true, &tiers_for("diamond+"), &banned, None)[0].id, 1);
         let owned: HashMap<i64, i64> = [(3, 9)].into();
@@ -566,5 +779,128 @@ mod tests {
         let bounty = overall(&m, true, &tiers, Some("bounty"));
         assert_eq!(bounty.len(), 1); // MORTIS only, and 40 rounds clears the minimum
         assert_eq!(modes(&m, true, &tiers), ["gemGrab", "bounty"]);
+    }
+
+    fn on(map: &str, mode: &str, id: i64, wins: u32, games: u32) -> Cell {
+        Cell { map: map.into(), mode: mode.into(), ranked: true, tier: "diamond".into(), id, brawler: format!("B{id}"), wins, games, ..Default::default() }
+    }
+    fn picks(m: &Meta, map: &str, classes: &HashMap<i64, String>) -> Vec<i64> {
+        recommend_with(m, map, true, &tiers_for("diamond+"), &HashSet::new(), None, classes).iter().map(|r| r.id).collect()
+    }
+
+    #[test]
+    fn a_lucky_thin_sample_cannot_beat_a_proven_brawler() {
+        // The case that looked wrong in practice: 13 wins from 13 rounds against 300/500.
+        let m = Meta { cells: vec![on("Ring", "hotZone", 1, 13, 13), on("Ring", "hotZone", 2, 300, 500)], ..Default::default() };
+        let r = recommend_with(&m, "Ring", true, &tiers_for("diamond+"), &HashSet::new(), None, &HashMap::new());
+        assert_eq!(r[0].id, 2);
+        assert_eq!(r[1].win_rate, 1.0); // the raw figure is still reported
+        assert!(r[1].score < 0.65 && r[1].confidence == "low");
+    }
+
+    #[test]
+    fn a_brawlers_record_across_the_mode_steadies_its_map_figure() {
+        // On this map both have the same 5 rounds (4 wins). Brawler 1 is strong all over Hot Zone,
+        // brawler 2 is weak all over it, so 1 should clearly lead.
+        let m = Meta {
+            cells: vec![
+                on("Ring", "hotZone", 1, 4, 5), on("Other", "hotZone", 1, 330, 500),
+                on("Ring", "hotZone", 2, 4, 5), on("Other", "hotZone", 2, 200, 500),
+            ],
+            ..Default::default()
+        };
+        let r = recommend_with(&m, "Ring", true, &tiers_for("diamond+"), &HashSet::new(), None, &HashMap::new());
+        assert_eq!(r[0].id, 1);
+        assert!(r[0].score > r[1].score + 0.1);
+        assert_eq!(r[0].mode_games, 505);
+    }
+
+    #[test]
+    fn kit_fit_keeps_an_ill_suited_brawler_from_winning_on_noise() {
+        // Same results for a tank and an assassin in Hot Zone; the tank should rank higher.
+        let m = Meta { cells: vec![on("Ring", "hotZone", 1, 16, 25), on("Ring", "hotZone", 2, 16, 25)], ..Default::default() };
+        let classes: HashMap<i64, String> = [(1, "assassin".to_string()), (2, "tank".to_string())].into();
+        let r = recommend_with(&m, "Ring", true, &tiers_for("diamond+"), &HashSet::new(), None, &classes);
+        assert_eq!(r.iter().map(|x| x.id).collect::<Vec<_>>(), [2, 1]);
+        assert!(r[0].fit > 0.5 && r[1].fit < 0.0 && r[0].class.as_deref() == Some("tank"));
+        // With no role data both are neutral and the order falls back to id.
+        assert_eq!(picks(&m, "Ring", &HashMap::new()), [1, 2]);
+        // The same two in Brawl Ball (where assassins are fine and tanks are great) keep tank first.
+        let bb = Meta { cells: vec![on("Arena", "brawlBall", 1, 16, 25), on("Arena", "brawlBall", 2, 16, 25)], ..Default::default() };
+        assert_eq!(picks(&bb, "Arena", &classes), [2, 1]);
+    }
+
+    #[test]
+    fn a_class_that_wins_in_the_data_lifts_its_thin_members() {
+        // Controllers win ~60% across Gem Grab in the sample; a controller with 6 map rounds should
+        // beat a damage dealer with the same 6 when the damage dealers do poorly.
+        let mut cells = vec![on("Fort", "gemGrab", 1, 3, 6), on("Fort", "gemGrab", 2, 3, 6)];
+        cells.push(on("Mine", "gemGrab", 10, 600, 1000)); // controller elsewhere
+        cells.push(on("Mine", "gemGrab", 11, 400, 1000)); // damage dealer elsewhere
+        let classes: HashMap<i64, String> = [(1, "controller".to_string()), (2, "damage".to_string()), (10, "controller".to_string()), (11, "damage".to_string())].into();
+        let m = Meta { cells, ..Default::default() };
+        assert_eq!(picks(&m, "Fort", &classes), [1, 2]);
+    }
+
+    #[test]
+    fn usage_edges_a_tie_and_results_are_stable() {
+        let m = Meta { cells: vec![on("M", "gemGrab", 1, 30, 50), on("M", "gemGrab", 2, 60, 100), on("M", "gemGrab", 3, 6, 10)], ..Default::default() };
+        let r = recommend_with(&m, "M", true, &tiers_for("diamond+"), &HashSet::new(), None, &HashMap::new());
+        assert_eq!(r.iter().map(|x| x.usage_rank).collect::<Vec<_>>().len(), 3);
+        assert_eq!(r.iter().find(|x| x.id == 2).unwrap().usage_rank, 1);
+        assert!((r.iter().map(|x| x.usage).sum::<f64>() - 1.0).abs() < 1e-9);
+        // Same data, same answer, every time.
+        let again = recommend_with(&m, "M", true, &tiers_for("diamond+"), &HashSet::new(), None, &HashMap::new());
+        assert_eq!(r.iter().map(|x| x.id).collect::<Vec<_>>(), again.iter().map(|x| x.id).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn refreshes_add_up_without_double_counting() {
+        let log = vec![round("20261107T220000.000Z", "victory", "soloRanked"), round("20261107T221000.000Z", "defeat", "soloRanked")];
+        let mut first = Collector::default();
+        first.add_log("#A", "mythic", &log[..1]);
+        let b1 = Meta { fetched_at: 100, ..first.finish(HashMap::from([("mythic".to_string(), 3)])) };
+        assert_eq!(b1.seen.len(), 1);
+
+        // Second refresh sees both battles, one of which the first already counted.
+        let mut second = Collector::with_seen(b1.seen.iter().copied().collect());
+        second.add_log("#A", "mythic", &log);
+        let b2 = Meta { fetched_at: 200, ..second.finish(HashMap::from([("mythic".to_string(), 5)])) };
+        assert_eq!(b2.rounds, 1);
+
+        let all = merge(&[b1.clone(), b2.clone()]);
+        assert_eq!((all.rounds, all.batch_count, all.oldest, all.fetched_at), (2, 2, 100, 200));
+        assert_eq!(all.tier_players["mythic"], 5); // most seen in one batch, not 3 + 5
+        assert_eq!(cell(&all, 1).games, 2);
+        assert_eq!(cell(&all, 1).wins, 1); // won one, lost one
+        assert!(all.seen.is_empty());
+    }
+
+    #[test]
+    fn old_batches_are_dropped_and_only_the_newest_few_kept() {
+        let now = 100 * 24 * 3600;
+        let b = |at: i64| Meta { fetched_at: at, ..Default::default() };
+        let mut v = vec![b(now - 40 * 24 * 3600)]; // too old
+        for d in 0..8 {
+            v.push(b(now - d * 24 * 3600));
+        }
+        let kept = prune(v, now);
+        assert_eq!(kept.len(), MAX_BATCHES);
+        assert!(kept.windows(2).all(|w| w[0].fetched_at < w[1].fetched_at));
+        assert_eq!(kept.last().unwrap().fetched_at, now);
+    }
+
+    #[test]
+    fn a_file_from_before_batches_still_loads_as_one_batch() {
+        let old = r#"{"fetched_at": 55, "players": 9, "rounds": 3, "tier_players": {"mythic": 9},
+                      "cells": [{"map":"M","mode":"gemGrab","ranked":true,"tier":"mythic","event_id":1,"id":7,"brawler":"X","wins":2,"games":3}]}"#;
+        let st: Stored = serde_json::from_str(old).unwrap();
+        assert!(st.batches.is_empty() && st.legacy.cells.len() == 1);
+        let m = merge(&[st.legacy]);
+        assert_eq!((m.rounds, m.fetched_at, m.batch_count), (3, 55, 1));
+        // And the new format round-trips.
+        let new = Stored { batches: vec![Meta { fetched_at: 9, rounds: 4, ..Default::default() }], legacy: Meta::default() };
+        let back: Stored = serde_json::from_str(&serde_json::to_string(&new).unwrap()).unwrap();
+        assert_eq!((back.batches.len(), back.batches[0].rounds), (1, 4));
     }
 }
